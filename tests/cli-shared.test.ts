@@ -188,7 +188,7 @@ describe('cli-shared', () => {
       });
     });
 
-    describe('ENOENT errors [AC-4]', () => {
+    describe('ENOENT errors', () => {
       it('formats as "File not found: {path}"', () => {
         const err = Object.assign(new Error(), {
           code: 'ENOENT',
@@ -321,16 +321,16 @@ describe('cli-shared', () => {
   });
 
   describe('detectHelpVersionFlag', () => {
-    describe('Help flag detection [AC-4]', () => {
-      it('detects --help flag [IR-3]', () => {
+    describe('Help flag detection', () => {
+      it('detects --help flag', () => {
         expect(detectHelpVersionFlag(['--help'])).toEqual({ mode: 'help' });
       });
 
-      it('detects -h flag [IR-3]', () => {
+      it('detects -h flag', () => {
         expect(detectHelpVersionFlag(['-h'])).toEqual({ mode: 'help' });
       });
 
-      it('detects --help in any position [IR-3]', () => {
+      it('detects --help in any position', () => {
         expect(detectHelpVersionFlag(['file.rill', '--help'])).toEqual({
           mode: 'help',
         });
@@ -344,7 +344,7 @@ describe('cli-shared', () => {
         });
       });
 
-      it('help takes precedence over version [IR-3]', () => {
+      it('help takes precedence over version', () => {
         expect(detectHelpVersionFlag(['--help', '--version'])).toEqual({
           mode: 'help',
         });
@@ -356,18 +356,18 @@ describe('cli-shared', () => {
       });
     });
 
-    describe('Version flag detection [AC-4]', () => {
-      it('detects --version flag [IR-3]', () => {
+    describe('Version flag detection', () => {
+      it('detects --version flag', () => {
         expect(detectHelpVersionFlag(['--version'])).toEqual({
           mode: 'version',
         });
       });
 
-      it('detects -v flag [IR-3]', () => {
+      it('detects -v flag', () => {
         expect(detectHelpVersionFlag(['-v'])).toEqual({ mode: 'version' });
       });
 
-      it('detects --version in any position [IR-3]', () => {
+      it('detects --version in any position', () => {
         expect(detectHelpVersionFlag(['file.rill', '--version'])).toEqual({
           mode: 'version',
         });
@@ -381,16 +381,16 @@ describe('cli-shared', () => {
     });
 
     describe('No flag cases [EC-4, EC-5]', () => {
-      it('returns null for empty array [EC-4]', () => {
+      it('returns null for empty array', () => {
         expect(detectHelpVersionFlag([])).toBeNull();
       });
 
-      it('returns null for no flags [IR-3]', () => {
+      it('returns null for no flags', () => {
         expect(detectHelpVersionFlag(['file.rill'])).toBeNull();
         expect(detectHelpVersionFlag(['file.rill', 'arg1', 'arg2'])).toBeNull();
       });
 
-      it('returns null for unknown flags [EC-5]', () => {
+      it('returns null for unknown flags', () => {
         expect(detectHelpVersionFlag(['--unknown'])).toBeNull();
         expect(detectHelpVersionFlag(['--verbose'])).toBeNull();
         expect(detectHelpVersionFlag(['-x'])).toBeNull();

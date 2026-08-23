@@ -1,6 +1,6 @@
 /**
  * Tests for src/commands/uninstall.ts
- * Covers AC-5, AC-B9, AC-P4
+ * Covers uninstall behavior, missing package directories, and timing checks.
  * Phase 3.5 additions: EC-13, EC-15, EC-16.
  */
 
@@ -141,10 +141,10 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // AC-5: mount installed, uninstall removes mount + package dir
+  // mount installed, uninstall removes mount + package dir
   // ============================================================
 
-  describe('AC-5: uninstall removes mount from config and package directory', () => {
+  describe('uninstall removes mount from config and package directory', () => {
     it('removes mount from rill-config.json and exits 0', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -225,10 +225,10 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // AC-B9: mount exists, package directory absent — success
+  // mount exists, package directory absent — success
   // ============================================================
 
-  describe('AC-B9: mount exists but package directory absent', () => {
+  describe('mount exists but package directory absent', () => {
     it('removes mount from config and exits 0 when package directory is missing', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -257,10 +257,10 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // AC-P4: timing < 5s
+  // timing < 5s
   // ============================================================
 
-  describe('AC-P4: timing < 5s', () => {
+  describe('timing < 5s', () => {
     it('completes uninstall in under 5000ms', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -281,7 +281,7 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // EC-13: .rill/npm/ missing
+  // .rill/npm/ missing
   // ============================================================
 
   describe('EC-13: .rill/npm/ missing emits UXT-EXT-5 and exits 1', () => {
@@ -317,7 +317,7 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // EC-15: npm uninstall non-zero exit
+  // npm uninstall non-zero exit
   // ============================================================
 
   describe('EC-15: npm uninstall non-zero exit propagates exit code', () => {
@@ -384,7 +384,7 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // EC-16: loadProject validation fails after uninstall
+  // loadProject validation fails after uninstall
   // ============================================================
 
   describe('EC-16: loadProject validation fails after uninstall', () => {

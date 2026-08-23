@@ -2,14 +2,14 @@
  * Tests for parseCheckArgs function
  *
  * Test Coverage Matrix (maps TCs to specification requirements):
- * TC-1: --help flag returns help mode [AC-S6]
- * TC-3: Unknown flag throws error [EC-1]
- * TC-4: Missing file throws error [EC-2]
- * TC-5: --fix flag parsed correctly [IR-2]
- * TC-6: --verbose flag parsed correctly [IR-2]
- * TC-7: --format text parsed correctly [IR-2]
- * TC-8: --format json parsed correctly [IR-2]
- * TC-9: --format with invalid value throws error [EC-1]
+ * --help flag returns help mode
+ * Unknown flag throws error
+ * Missing file throws error
+ * --fix flag parsed correctly
+ * --verbose flag parsed correctly
+ * --format text parsed correctly
+ * --format json parsed correctly
+ * --format with invalid value throws error
  */
 
 import { describe, it, expect } from 'vitest';
@@ -17,42 +17,42 @@ import { parseCheckArgs } from '../../src/cli-check.js';
 
 describe('parseCheckArgs', () => {
   describe('help mode', () => {
-    it('returns help mode when --help flag present [TC-1]', () => {
+    it('returns help mode when --help flag present', () => {
       const result = parseCheckArgs(['--help']);
       expect(result).toEqual({ mode: 'help' });
     });
 
-    it('returns help mode when -h flag present [TC-1]', () => {
+    it('returns help mode when -h flag present', () => {
       const result = parseCheckArgs(['-h']);
       expect(result).toEqual({ mode: 'help' });
     });
 
-    it('returns help mode when --help flag present with other args [TC-1]', () => {
+    it('returns help mode when --help flag present with other args', () => {
       const result = parseCheckArgs(['file.rill', '--help', '--fix']);
       expect(result).toEqual({ mode: 'help' });
     });
   });
 
   describe('error cases', () => {
-    it('throws error for unknown flag [TC-3]', () => {
+    it('throws error for unknown flag', () => {
       expect(() => parseCheckArgs(['--unknown', 'file.rill'])).toThrow(
         'Unknown option: --unknown'
       );
     });
 
-    it('throws error for unknown short flag [TC-3]', () => {
+    it('throws error for unknown short flag', () => {
       expect(() => parseCheckArgs(['-x', 'file.rill'])).toThrow(
         'Unknown option: -x'
       );
     });
 
-    it('throws when --fix supplied without a file argument [TC-4]', () => {
+    it('throws when --fix supplied without a file argument', () => {
       expect(() => parseCheckArgs(['--fix'])).toThrow(
         '--fix requires a file argument'
       );
     });
 
-    it('throws when --fix combined with other flags but no file [TC-4]', () => {
+    it('throws when --fix combined with other flags but no file', () => {
       expect(() => parseCheckArgs(['--fix', '--verbose'])).toThrow(
         '--fix requires a file argument'
       );
@@ -75,19 +75,19 @@ describe('parseCheckArgs', () => {
       );
     });
 
-    it('throws error when --format has no value [TC-9]', () => {
+    it('throws error when --format has no value', () => {
       expect(() => parseCheckArgs(['file.rill', '--format'])).toThrow(
         '--format requires argument: text or json'
       );
     });
 
-    it('throws error when --format value is another flag [TC-9]', () => {
+    it('throws error when --format value is another flag', () => {
       expect(() => parseCheckArgs(['file.rill', '--format', '--fix'])).toThrow(
         '--format requires argument: text or json'
       );
     });
 
-    it('throws error when --format value is invalid [TC-9]', () => {
+    it('throws error when --format value is invalid', () => {
       expect(() => parseCheckArgs(['file.rill', '--format', 'xml'])).toThrow(
         'Invalid format: xml. Expected text or json'
       );
@@ -95,7 +95,7 @@ describe('parseCheckArgs', () => {
   });
 
   describe('check mode parsing', () => {
-    it('parses file path correctly [TC-4]', () => {
+    it('parses file path correctly', () => {
       const result = parseCheckArgs(['test.rill']);
       expect(result).toEqual({
         mode: 'check',
@@ -108,7 +108,7 @@ describe('parseCheckArgs', () => {
       });
     });
 
-    it('parses --fix flag correctly [TC-5]', () => {
+    it('parses --fix flag correctly', () => {
       const result = parseCheckArgs(['test.rill', '--fix']);
       expect(result).toEqual({
         mode: 'check',
@@ -121,7 +121,7 @@ describe('parseCheckArgs', () => {
       });
     });
 
-    it('parses --verbose flag correctly [TC-6]', () => {
+    it('parses --verbose flag correctly', () => {
       const result = parseCheckArgs(['test.rill', '--verbose']);
       expect(result).toEqual({
         mode: 'check',
@@ -134,7 +134,7 @@ describe('parseCheckArgs', () => {
       });
     });
 
-    it('parses --format text correctly [TC-7]', () => {
+    it('parses --format text correctly', () => {
       const result = parseCheckArgs(['test.rill', '--format', 'text']);
       expect(result).toEqual({
         mode: 'check',
@@ -147,7 +147,7 @@ describe('parseCheckArgs', () => {
       });
     });
 
-    it('parses --format json correctly [TC-8]', () => {
+    it('parses --format json correctly', () => {
       const result = parseCheckArgs(['test.rill', '--format', 'json']);
       expect(result).toEqual({
         mode: 'check',

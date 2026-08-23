@@ -1,7 +1,7 @@
 /**
  * Tests for src/commands/install.ts
- * Covers AC-2, AC-3, AC-B5, AC-B6, AC-B7, AC-B8 (doc), AC-P2
- * Phase 3.5 additions: AC-E1/E2/E5/E6 and EC-7/EC-8..EC-11/EC-31.
+ * Covers registry installs, mount overwrites, range and pin flags,
+ * collision handling, validation timing, and install failure cases.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -104,10 +104,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-2: registry install with caret version
+  // registry install with caret version
   // ============================================================
 
-  describe('AC-2: registry install with caret version', () => {
+  describe('registry install with caret version', () => {
     it('records caret mount and does not modify project-root package.json', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
@@ -146,10 +146,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-3: --as overwrite, existing mount untouched
+  // --as overwrite, existing mount untouched
   // ============================================================
 
-  describe('AC-3: --as overwrite, existing mount untouched', () => {
+  describe('--as overwrite, existing mount untouched', () => {
     it('registers new mount under --as name and leaves existing mount unchanged', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -182,10 +182,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-B5: --range custom semver
+  // --range custom semver
   // ============================================================
 
-  describe('AC-B5: --range custom semver', () => {
+  describe('--range custom semver', () => {
     it('records mount with verbatim range value', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
@@ -216,10 +216,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-B6: --pin exact version
+  // --pin exact version
   // ============================================================
 
-  describe('AC-B6: --pin exact version (no caret)', () => {
+  describe('--pin exact version (no caret)', () => {
     it('records mount with exact version when --pin is set', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
@@ -246,10 +246,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-B7: --pin and --range are mutually exclusive
+  // --pin and --range are mutually exclusive
   // ============================================================
 
-  describe('AC-B7: --pin and --range are mutually exclusive', () => {
+  describe('--pin and --range are mutually exclusive', () => {
     it('exits 1 and writes error to stderr', async () => {
       bootstrapProject(tmpDir);
 
@@ -275,7 +275,7 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-B8: concurrent installs — last-write-wins
+  // concurrent installs — last-write-wins
   //
   // Two concurrent install calls each write their own config edit and the last
   // write wins. The spec does not require CLI-side locking, so there is no
@@ -325,10 +325,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-P2: config-edit + loadProject validation < 1s
+  // config-edit + loadProject validation < 1s
   // ============================================================
 
-  describe('AC-P2: config-edit + loadProject validation < 1s', () => {
+  describe('config-edit + loadProject validation < 1s', () => {
     it('config-edit + loadProject validation completes in under 1000ms', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
@@ -348,10 +348,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-E1 / EC-7: .rill/npm/ missing
+  // .rill/npm/ missing
   // ============================================================
 
-  describe('AC-E1/EC-7: .rill/npm/ missing emits UXT-EXT-5 and exits 1', () => {
+  describe('.rill/npm/ missing emits UXT-EXT-5 and exits 1', () => {
     it('writes UXT-EXT-5 verbatim to stderr; no npm subprocess; exits 1', async () => {
       // No bootstrapProject call — .rill/npm/ does not exist
       fs.writeFileSync(
@@ -383,10 +383,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-E2 / EC-8: Mount collision without --as
+  // Mount collision without --as
   // ============================================================
 
-  describe('AC-E2/EC-8: mount collision without --as exits 1 with UXT-EXT-4', () => {
+  describe('mount collision without --as exits 1 with UXT-EXT-4', () => {
     it('writes UXT-EXT-4 verbatim to stderr; no npm subprocess; exits 1', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -411,10 +411,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-E5 / EC-9: npm subprocess non-zero exit
+  // npm subprocess non-zero exit
   // ============================================================
 
-  describe('AC-E5/EC-9: npm non-zero exit propagates; config byte-equal', () => {
+  describe('npm non-zero exit propagates; config byte-equal', () => {
     it('exits with npm exit code; rill-config.json unchanged; no rollback line', async () => {
       bootstrapProject(tmpDir);
       const configBefore = fs.readFileSync(
@@ -450,17 +450,17 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-E6 / EC-10: loadProject validation fails after install
+  // loadProject validation fails after install
   // ============================================================
 
-  describe('AC-E6/EC-10: factory failures no longer block install (FRICTION-NOTES 2026-05-03)', () => {
+  describe('factory failures no longer block install (FRICTION-NOTES 2026-05-03)', () => {
     it('install ignores factory errors entirely; loadProject is never invoked', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
       writeInstalledPkg(prefix, '@rcrsr/rill-ext-datetime', '0.19.0');
 
       // npm succeeds; loadProject would reject if called, but install must not
-      // call it. The previous AC-E6/EC-10 contract (rollback on factory error)
+      // call it. The previous rollback contract (rollback on factory error)
       // is intentionally dropped: factory validation lives in 'rill describe
       // project' and 'rill run', not install.
       mocks.spawn.mockImplementation(makeSpawnMock(0));
@@ -490,7 +490,7 @@ describe('install', () => {
   });
 
   // ============================================================
-  // EC-11: writeFileSync fails after npm install
+  // writeFileSync fails after npm install
   // ============================================================
 
   describe('EC-11: writeFileSync fails after npm install', () => {
@@ -533,7 +533,7 @@ describe('install', () => {
   });
 
   // ============================================================
-  // EC-31: npm not on PATH (NpmNotFoundError)
+  // npm not on PATH (NpmNotFoundError)
   // ============================================================
 
   describe('EC-31: npm not on PATH exits 1 with readable message', () => {

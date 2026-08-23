@@ -12,7 +12,7 @@ import {
 } from '../../src/build/build.js';
 
 // ============================================================
-// SPY: loadProject — tracks calls for AC-9 prefix assertion
+// SPY: loadProject — tracks calls for prefix assertion
 // ============================================================
 
 const mocks = vi.hoisted(() => ({
@@ -112,9 +112,9 @@ afterEach(async () => {
 
 describe('buildPackage success cases', () => {
   // ----------------------------------------------------------
-  // AC-18: Build produces enriched rill-config.json with build section
+  // Build produces enriched rill-config.json with build section
   // ----------------------------------------------------------
-  it('produces enriched rill-config.json with build section [AC-18]', async () => {
+  it('produces enriched rill-config.json with build section', async () => {
     const { projectDir, outputDir } = await makeProjectFixture();
 
     const result = await buildPackage(projectDir, { outputDir });
@@ -134,9 +134,9 @@ describe('buildPackage success cases', () => {
   });
 
   // ----------------------------------------------------------
-  // AC-20: checksum is sha256:<hex>
+  // checksum is sha256:<hex>
   // ----------------------------------------------------------
-  it('returns sha256 checksum in format sha256:<hex> [AC-20]', async () => {
+  it('returns sha256 checksum in format sha256:<hex>', async () => {
     const { projectDir, outputDir } = await makeProjectFixture();
 
     const result = await buildPackage(projectDir, { outputDir });
@@ -145,9 +145,9 @@ describe('buildPackage success cases', () => {
   });
 
   // ----------------------------------------------------------
-  // AC-20: rill-config.json build.checksum matches result.checksum
+  // rill-config.json build.checksum matches result.checksum
   // ----------------------------------------------------------
-  it('rill-config.json build.checksum matches result.checksum [AC-20]', async () => {
+  it('rill-config.json build.checksum matches result.checksum', async () => {
     const { projectDir, outputDir } = await makeProjectFixture();
 
     const result = await buildPackage(projectDir, { outputDir });
@@ -173,9 +173,9 @@ describe('buildPackage success cases', () => {
   });
 
   // ----------------------------------------------------------
-  // AC-22: entry.rill copied to package dir (flat, no packages/ subdir)
+  // entry.rill copied to package dir (flat, no packages/ subdir)
   // ----------------------------------------------------------
-  it('copies entry.rill to <outputDir>/<package-name>/main.rill [AC-22]', async () => {
+  it('copies entry.rill to <outputDir>/<package-name>/main.rill', async () => {
     const { projectDir, outputDir } = await makeProjectFixture();
 
     const result = await buildPackage(projectDir, { outputDir });
@@ -189,9 +189,9 @@ describe('buildPackage success cases', () => {
   });
 
   // ----------------------------------------------------------
-  // AC-18: Output rill-config.json preserves original main field
+  // Output rill-config.json preserves original main field
   // ----------------------------------------------------------
-  it('writes rill-config.json to <package-name>/ with original main field preserved [AC-18]', async () => {
+  it('writes rill-config.json to <package-name>/ with original main field preserved', async () => {
     const { projectDir, outputDir } = await makeProjectFixture();
 
     const result = await buildPackage(projectDir, { outputDir });
@@ -205,9 +205,9 @@ describe('buildPackage success cases', () => {
   });
 
   // ----------------------------------------------------------
-  // AC-26: outputPath points to package dir inside custom outputDir
+  // outputPath points to package dir inside custom outputDir
   // ----------------------------------------------------------
-  it('outputPath points to package dir inside custom outputDir [AC-26]', async () => {
+  it('outputPath points to package dir inside custom outputDir', async () => {
     const { projectDir } = await makeProjectFixture();
     const customOutputDir = await makeTmpDir();
 
@@ -237,9 +237,9 @@ describe('buildPackage success cases', () => {
   });
 
   // ----------------------------------------------------------
-  // AC-28: Same source built twice produces identical checksums
+  // Same source built twice produces identical checksums
   // ----------------------------------------------------------
-  it('same source built twice produces identical checksums [AC-28]', async () => {
+  it('same source built twice produces identical checksums', async () => {
     const { projectDir, outputDir } = await makeProjectFixture();
     const outputDir2 = await makeTmpDir();
 
@@ -250,9 +250,9 @@ describe('buildPackage success cases', () => {
   });
 
   // ----------------------------------------------------------
-  // AC-18: Local TS extension compiled and mount path rewritten
+  // Local TS extension compiled and mount path rewritten
   // ----------------------------------------------------------
-  it('compiles local TS extension and rewrites mount path in rill-config.json [AC-18]', async () => {
+  it('compiles local TS extension and rewrites mount path in rill-config.json', async () => {
     const projectDir = await makeTmpDir();
     const outputDir = await makeTmpDir();
 
@@ -308,9 +308,9 @@ export const extensionManifest = {
   });
 
   // ----------------------------------------------------------
-  // AC-29: No Dockerfile, .zip, deployment artifacts in output
+  // No Dockerfile, .zip, deployment artifacts in output
   // ----------------------------------------------------------
-  it('produces no Dockerfile, .zip, or deployment artifacts [AC-29]', async () => {
+  it('produces no Dockerfile, .zip, or deployment artifacts', async () => {
     const { projectDir, outputDir } = await makeProjectFixture();
 
     await buildPackage(projectDir, { outputDir });
@@ -422,9 +422,9 @@ export const extensionManifest = {
 
 describe('buildPackage error cases', () => {
   // ----------------------------------------------------------
-  // AC-47: rill-config.json not found → BuildError('validation')
+  // rill-config.json not found → BuildError('validation')
   // ----------------------------------------------------------
-  it('throws BuildError phase validation when rill-config.json is missing [AC-47]', async () => {
+  it('throws BuildError phase validation when rill-config.json is missing', async () => {
     const outputDir = await makeTmpDir();
     const nonExistentDir = path.join(outputDir, 'does-not-exist');
     await initRillNpm(nonExistentDir);
@@ -441,9 +441,9 @@ describe('buildPackage error cases', () => {
   });
 
   // ----------------------------------------------------------
-  // AC-48: Malformed rill-config.json → BuildError('validation') with parse detail
+  // Malformed rill-config.json → BuildError('validation') with parse detail
   // ----------------------------------------------------------
-  it('throws BuildError phase validation when rill-config.json is malformed JSON [AC-48]', async () => {
+  it('throws BuildError phase validation when rill-config.json is malformed JSON', async () => {
     const projectDir = await makeTmpDir();
     const outputDir = await makeTmpDir();
 
@@ -575,9 +575,9 @@ export const extensionManifest = {
   });
 
   // ----------------------------------------------------------
-  // AC-49: loadProject() dry-run failure deletes output and throws
+  // loadProject() dry-run failure deletes output and throws
   // ----------------------------------------------------------
-  it('throws BuildError when npm extension cannot be resolved [AC-49]', async () => {
+  it('throws BuildError when npm extension cannot be resolved', async () => {
     const projectDir = await makeTmpDir();
     const outputDir = await makeTmpDir();
 
@@ -609,10 +609,10 @@ export const extensionManifest = {
   });
 
   // ----------------------------------------------------------
-  // AC-34/EC-15: Output not writable → BuildError phase 'bundling'
+  // Output not writable → BuildError phase 'bundling'
   // ----------------------------------------------------------
   it.skipIf(process.platform === 'win32')(
-    'throws BuildError phase bundling when output dir is not writable [AC-34/EC-15]',
+    'throws BuildError phase bundling when output dir is not writable',
     async () => {
       const { projectDir } = await makeProjectFixture();
 
@@ -669,9 +669,9 @@ describe('buildPackage boundary conditions', () => {
   });
 
   // ----------------------------------------------------------
-  // AC-49: 3+ local TS extensions all produce compiled JS
+  // 3+ local TS extensions all produce compiled JS
   // ----------------------------------------------------------
-  it('compiles 3 local TS extensions and all produce JS output files [AC-49]', async () => {
+  it('compiles 3 local TS extensions and all produce JS output files', async () => {
     const projectDir = await makeTmpDir();
     const outputDir = await makeTmpDir();
 
@@ -1413,11 +1413,11 @@ describe('findOffendingDynamicRequires', () => {
 // ============================================================
 
 // ----------------------------------------------------------
-// AC-E7 / EC-33: .rill/npm/package.json missing on rill build
+// .rill/npm/package.json missing on rill build
 // ----------------------------------------------------------
 
 describe('buildPackage EC-33: .rill/npm/package.json missing', () => {
-  it('throws BuildError phase compilation with FR-EXT-9 message [AC-E7/EC-33]', async () => {
+  it('throws BuildError phase compilation with FR-EXT-9 message', async () => {
     const projectDir = await makeTmpDir();
     const outputDir = await makeTmpDir();
 
@@ -1460,9 +1460,9 @@ describe('buildPackage EC-33: .rill/npm/package.json missing', () => {
   });
 });
 
-// AC-9: buildPackage passes prefix = <projectDir>/.rill/npm to loadProject
-describe('buildPackage AC-9: loadProject prefix', () => {
-  it('passes prefix = <projectDir>/.rill/npm to loadProject [AC-9]', async () => {
+// buildPackage passes prefix = <projectDir>/.rill/npm to loadProject
+describe('buildPackage loadProject prefix', () => {
+  it('passes prefix = <projectDir>/.rill/npm to loadProject', async () => {
     const { projectDir, outputDir } = await makeProjectFixture();
 
     await buildPackage(projectDir, { outputDir });

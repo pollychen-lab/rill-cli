@@ -1,9 +1,9 @@
 /**
- * AC-11 / NFR-EXT-7: loadProject succeeds on a valid bootstrapped fixture.
- * IR-19: loadExtensions with prefix resolves extensions from .rill/npm/node_modules/.
+ * loadProject succeeds on a valid bootstrapped fixture.
+ * loadExtensions with prefix resolves extensions from .rill/npm/node_modules/.
  *
  * Verifies that calling loadProject with prefix=<projectDir>/.rill/npm resolves
- * correctly for both empty-mounts (AC-11) and non-empty-mounts (IR-19) cases.
+ * correctly for both empty-mounts  and non-empty-mounts  cases.
  */
 
 import path from 'node:path';
@@ -50,10 +50,10 @@ async function bootstrapRillNpm(projectDir: string): Promise<string> {
 }
 
 // ============================================================
-// AC-11: loadProject succeeds on valid bootstrapped fixture (empty mounts)
+// loadProject succeeds on valid bootstrapped fixture (empty mounts)
 // ============================================================
 
-describe('AC-11: loadProject succeeds on valid bootstrapped fixture (NFR-EXT-7)', () => {
+describe('loadProject succeeds on valid bootstrapped fixture', () => {
   const VALID_RILL_CONFIG = JSON.stringify(
     {
       name: 'loadproject-test',
@@ -130,7 +130,7 @@ describe('AC-11: loadProject succeeds on valid bootstrapped fixture (NFR-EXT-7)'
 });
 
 // ============================================================
-// IR-19: loadExtensions with prefix resolves from .rill/npm/node_modules/
+// loadExtensions with prefix resolves from .rill/npm/node_modules/
 // ============================================================
 
 describe('IR-19: loadProject resolves non-empty mounts via prefix (.rill/npm)', () => {

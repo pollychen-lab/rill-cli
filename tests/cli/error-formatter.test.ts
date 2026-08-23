@@ -521,7 +521,7 @@ describe('renderCaretUnderline', () => {
     });
   });
 
-  describe('AC-20: Error at final character renders correctly', () => {
+  describe('Error at final character renders correctly', () => {
     it('renders caret at last character position', () => {
       const lineContent = 'hello world';
       const lastCharColumn = lineContent.length - 1; // Column of 'd'

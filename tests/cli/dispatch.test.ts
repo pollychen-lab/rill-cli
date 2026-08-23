@@ -1,7 +1,6 @@
 /**
  * Tests for src/cli.ts — unified dispatcher.
- * Covers AC-10 (UXT-EXT-11 help output), AC-P6 (dispatch < 100ms).
- * Phase 3.5 additions: EC-1/EC-2/EC-3 + AC-E8.
+ * Covers help output, dispatch timing, and unknown-subcommand handling.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -64,10 +63,10 @@ describe('cli dispatch', () => {
   });
 
   // ============================================================
-  // AC-10: no-args → UXT-EXT-11 help
+  // no-args → UXT-EXT-11 help
   // ============================================================
 
-  describe('AC-10: no subcommand emits UXT-EXT-11 help and exits 0', () => {
+  describe('no subcommand emits UXT-EXT-11 help and exits 0', () => {
     it('main([]) outputs help text and exits 0', async () => {
       const { main } = await import('../../src/cli.js');
       const cap = captureOutput();
@@ -122,10 +121,10 @@ describe('cli dispatch', () => {
   });
 
   // ============================================================
-  // AC-P6: dispatch overhead < 100ms
+  // dispatch overhead < 100ms
   // ============================================================
 
-  describe('AC-P6: dispatch overhead < 100ms before subcommand body executes', () => {
+  describe('dispatch overhead < 100ms before subcommand body executes', () => {
     it('records handler entry timestamp within 100ms of main() call', async () => {
       const { main } = await import('../../src/cli.js');
 
@@ -192,10 +191,10 @@ describe('cli dispatch', () => {
   });
 
   // ============================================================
-  // AC-E8 / EC-1: unknown subcommand
+  // unknown subcommand
   // ============================================================
 
-  describe('AC-E8/EC-1: unknown subcommand exits 1 with error message', () => {
+  describe('unknown subcommand exits 1 with error message', () => {
     it('main(["foo"]) writes stderr and exits 1', async () => {
       const { main } = await import('../../src/cli.js');
       const cap = captureOutput();
@@ -228,7 +227,7 @@ describe('cli dispatch', () => {
   });
 
   // ============================================================
-  // EC-2: --version / -v
+  // --version / -v
   // ============================================================
 
   describe('EC-2: --version / -v exits 0 with CLI_VERSION on stdout', () => {
@@ -263,7 +262,7 @@ describe('cli dispatch', () => {
   });
 
   // ============================================================
-  // EC-3: --help / -h / no args -> UXT-EXT-11
+  // --help / -h / no args -> UXT-EXT-11
   // ============================================================
 
   describe('EC-3: --help / -h / no args emit UXT-EXT-11 and exit 0', () => {
