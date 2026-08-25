@@ -13,14 +13,24 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { loadProject } from '@rcrsr/rill-config';
 import { assertBootstrapped, BootstrapMissingError } from './prefix.js';
-import { readConfigSnapshot, hasMount, applyMountEdit } from './config-edit.js';
+import {
+  readConfigSnapshot,
+  hasMount,
+  applyMountEdit,
+  ConfigNotFoundError,
+  ConfigParseError,
+} from './config-edit.js';
 import { npmUninstall, NpmNotFoundError } from './npm-runner.js';
-import { isLocalPath, looksLikeLocalFilePath } from './mount-derive.js';
+import {
+  isLocalPath,
+  looksLikeLocalFilePath,
+  readLocalPackageName,
+} from './mount-derive.js';
 import {
   resolveExtensionTarget,
   resolveHarnessTarget,
 } from './bundle-resolve.js';
-import { writeBundleHarness } from '../bundle/config.js';
+import { writeBundleHarness, BundleConfigError } from '../bundle/config.js';
 import { CLI_VERSION } from '../cli-shared.js';
 
 // ---------------------------------------------------------------------------
@@ -67,12 +77,18 @@ Options:
  *
  * - Registry specifier (e.g. "@rcrsr/rill-ext-datetime@^0.19.0"): strip the
  *   trailing version qualifier (last '@' not at position 0).
- * - Local-path specifier (starts with './', '../', or '/'): npm symlinks under
- *   node_modules/<mount>, so the package name IS the mount name.
+ * - Local-path specifier (starts with './', '../', or '/'): prefer the
+ *   linked package's own `package.json` `name` field
+ *   (`readLocalPackageName`), falling back to the mount name when it cannot
+ *   be read.
  */
-function deriveNpmPackageName(specifier: string, mount: string): string {
+function deriveNpmPackageName(
+  specifier: string,
+  mount: string,
+  projectDir: string
+): string {
   if (isLocalPath(specifier)) {
-    return mount;
+    return readLocalPackageName(specifier, projectDir) ?? mount;
   }
 
   // Strip trailing version qualifier: find last '@' after position 0.
@@ -141,7 +157,15 @@ export async function run(argv: string[]): Promise<number> {
 
     process.stdout.write(`ℹ Removing harness '${target.harnessName}'...\n`);
 
-    await writeBundleHarness(target.bundleRoot, null);
+    try {
+      await writeBundleHarness(target.bundleRoot, null);
+    } catch (err) {
+      if (err instanceof BundleConfigError) {
+        process.stderr.write(`✗ ${err.message}\n`);
+        return 1;
+      }
+      throw err;
+    }
     process.stdout.write('✓ Removed harness from rill-bundle.json\n');
 
     try {
@@ -198,7 +222,23 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   // ---- Step 2: Read config snapshot + mount existence check ----
-  const snapshot = await readConfigSnapshot(targetDir);
+  let snapshot: Awaited<ReturnType<typeof readConfigSnapshot>>;
+  try {
+    snapshot = await readConfigSnapshot(targetDir);
+  } catch (err) {
+    if (err instanceof ConfigNotFoundError) {
+      process.stderr.write('✗ rill-config.json not found\n');
+      process.stderr.write(
+        "  Run 'rill init' first to initialize the project\n"
+      );
+      return 1;
+    }
+    if (err instanceof ConfigParseError) {
+      process.stderr.write(`✗ ${err.message}\n`);
+      return 1;
+    }
+    throw err;
+  }
 
   // Mount not in config -> the not-installed message, verbatim, exit 1; NO edit, NO npm
   if (!hasMount(snapshot, mount)) {
@@ -210,7 +250,7 @@ export async function run(argv: string[]): Promise<number> {
   // ---- Step 3: Read specifier from mount value ----
   const specifierVerbatim =
     snapshot.parsed.extensions?.mounts?.[mount] ?? mount;
-  const pkgName = deriveNpmPackageName(specifierVerbatim, mount);
+  const pkgName = deriveNpmPackageName(specifierVerbatim, mount, targetDir);
   const localFile = looksLikeLocalFilePath(specifierVerbatim);
 
   // ---- Step 4: Print removal start message (line 1 of 4) ----

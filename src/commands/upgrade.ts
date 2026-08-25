@@ -15,7 +15,14 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { assertBootstrapped, BootstrapMissingError } from './prefix.js';
 import { extractPackageName, isLocalPath } from './mount-derive.js';
-import { readConfigSnapshot, applyMountEdit, hasMount } from './config-edit.js';
+import {
+  readConfigSnapshot,
+  applyMountEdit,
+  hasMount,
+  ConfigNotFoundError,
+  ConfigParseError,
+} from './config-edit.js';
+import type { RollbackAnnotatedError } from './config-edit.js';
 import { npmInstall, NpmNotFoundError } from './npm-runner.js';
 import {
   resolveExtensionTarget,
@@ -41,7 +48,7 @@ Options:
   --for <mount>    Target a specific package's mount within a bundle
   --harness        Upgrade the bundle's declared harness instead of an extension mount
   --pin            Record exact installed version (no caret)
-  --exact          Deprecated alias for --pin (will be removed in 0.20)
+  --exact          Deprecated alias for --pin (will be removed in 0.21)
   --range <semver> Install and record a custom semver range verbatim
   --help           Show this help message
 `;
@@ -96,7 +103,7 @@ export async function run(argv: string[]): Promise<number> {
   // P2-1: --exact is deprecated; warn once before continuing.
   if (values['exact'] === true) {
     process.stderr.write(
-      'warning: --exact is deprecated, use --pin (will be removed in 0.20)\n'
+      'warning: --exact is deprecated, use --pin (will be removed in 0.21)\n'
     );
   }
 
@@ -236,7 +243,23 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   // ---- Step 2: Read config snapshot + mount existence check ----
-  const snapshot = await readConfigSnapshot(targetDir);
+  let snapshot: Awaited<ReturnType<typeof readConfigSnapshot>>;
+  try {
+    snapshot = await readConfigSnapshot(targetDir);
+  } catch (err) {
+    if (err instanceof ConfigNotFoundError) {
+      process.stderr.write('✗ rill-config.json not found\n');
+      process.stderr.write(
+        "  Run 'rill init' first to initialize the project\n"
+      );
+      return 1;
+    }
+    if (err instanceof ConfigParseError) {
+      process.stderr.write(`✗ ${err.message}\n`);
+      return 1;
+    }
+    throw err;
+  }
 
   // Mount not in config -> the not-installed message, verbatim, exit 1
   if (!hasMount(snapshot, mount)) {
@@ -358,11 +381,25 @@ export async function run(argv: string[]): Promise<number> {
       prefix
     );
   } catch (err) {
-    // validation failed; applyMountEdit already rolled back the file
+    // validation failed; applyMountEdit attempted to roll back the file
     const errName = err instanceof Error ? err.constructor.name : 'Error';
     const errMsg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`✗ Config validation failed: ${errName}: ${errMsg}\n`);
-    process.stderr.write('✓ Rolled back rill-config.json\n');
+    const rollback = err as RollbackAnnotatedError;
+    if (rollback.rolledBack === true) {
+      process.stderr.write('✓ Rolled back rill-config.json\n');
+    } else if (rollback.rolledBack === false) {
+      const rollbackMsg =
+        rollback.rollbackCause instanceof Error
+          ? rollback.rollbackCause.message
+          : String(rollback.rollbackCause);
+      process.stderr.write(`✗ Rollback failed: ${rollbackMsg}\n`);
+      process.stderr.write(
+        '  rill-config.json may be left modified; inspect and repair it manually\n'
+      );
+    }
+    // rolledBack === undefined: the failure occurred before any rollback was
+    // attempted (e.g. a write failure), so there is nothing to report here.
     // [ASSUMPTION] Guidance line adapted from install's for upgrade context.
     // Install says "Check the extension or use --as to pick a different mount path".
     // Upgrade equivalent directs user to check the upgrade target or use --range.
