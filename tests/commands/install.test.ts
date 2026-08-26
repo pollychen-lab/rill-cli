@@ -1,7 +1,8 @@
 /**
  * Tests for src/commands/install.ts
- * Covers AC-2, AC-3, AC-B5, AC-B6, AC-B7, AC-B8 (doc), AC-P2
- * Phase 3.5 additions: AC-E1/E2/E5/E6 and EC-7/EC-8..EC-11/EC-31.
+ * Covers registry install, --as overwrite, --range/--pin semver options,
+ * concurrent installs, timing budget, missing .rill/npm/, mount collision,
+ * npm non-zero exit, and post-install validation failures.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -104,10 +105,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-2: registry install with caret version
+  // Registry install with caret version
   // ============================================================
 
-  describe('AC-2: registry install with caret version', () => {
+  describe('registry install with caret version', () => {
     it('records caret mount and does not modify project-root package.json', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
@@ -146,10 +147,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-3: --as overwrite, existing mount untouched
+  // --as overwrite, existing mount untouched
   // ============================================================
 
-  describe('AC-3: --as overwrite, existing mount untouched', () => {
+  describe('--as overwrite, existing mount untouched', () => {
     it('registers new mount under --as name and leaves existing mount unchanged', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -182,10 +183,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-B5: --range custom semver
+  // --range custom semver
   // ============================================================
 
-  describe('AC-B5: --range custom semver', () => {
+  describe('--range custom semver', () => {
     it('records mount with verbatim range value', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
@@ -216,10 +217,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-B6: --pin exact version
+  // --pin exact version
   // ============================================================
 
-  describe('AC-B6: --pin exact version (no caret)', () => {
+  describe('--pin exact version (no caret)', () => {
     it('records mount with exact version when --pin is set', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
@@ -246,10 +247,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-B7: --pin and --range are mutually exclusive
+  // --pin and --range are mutually exclusive
   // ============================================================
 
-  describe('AC-B7: --pin and --range are mutually exclusive', () => {
+  describe('--pin and --range are mutually exclusive', () => {
     it('exits 1 and writes error to stderr', async () => {
       bootstrapProject(tmpDir);
 
@@ -275,14 +276,14 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-B8: concurrent installs — last-write-wins (documentation test)
+  // Concurrent installs — last-write-wins
+  //
+  // Two concurrent install calls each write their own config edit and the last
+  // write wins. The spec does not require CLI-side locking, so there is no
+  // behaviour here to assert. Recorded as a note rather than an `it.todo`: a
+  // todo never runs, so it reads as owed coverage when the decision was that
+  // none is owed.
   // ============================================================
-
-  describe('AC-B8: concurrent installs (last-write-wins, no CLI-side locking)', () => {
-    it.todo(
-      'two concurrent install calls each write their own config edit; last write wins (spec does not require CLI-side locking)'
-    );
-  });
 
   // ============================================================
   // FRICTION-NOTES 2026-05-03: install never invokes the extension factory
@@ -325,10 +326,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-P2: config-edit + loadProject validation < 1s
+  // Timing budget: config-edit + loadProject validation
   // ============================================================
 
-  describe('AC-P2: config-edit + loadProject validation < 1s', () => {
+  describe('completes config-edit and validation within timing budget', () => {
     it('config-edit + loadProject validation completes in under 1000ms', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
@@ -348,11 +349,11 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-E1 / EC-7: .rill/npm/ missing
+  // .rill/npm/ missing
   // ============================================================
 
-  describe('AC-E1/EC-7: .rill/npm/ missing emits UXT-EXT-5 and exits 1', () => {
-    it('writes UXT-EXT-5 verbatim to stderr; no npm subprocess; exits 1', async () => {
+  describe('.rill/npm/ missing emits the not-found error and exits 1', () => {
+    it('writes the not-found error verbatim to stderr; no npm subprocess; exits 1', async () => {
       // No bootstrapProject call — .rill/npm/ does not exist
       fs.writeFileSync(
         path.join(tmpDir, 'rill-config.json'),
@@ -383,11 +384,11 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-E2 / EC-8: Mount collision without --as
+  // Mount collision without --as
   // ============================================================
 
-  describe('AC-E2/EC-8: mount collision without --as exits 1 with UXT-EXT-4', () => {
-    it('writes UXT-EXT-4 verbatim to stderr; no npm subprocess; exits 1', async () => {
+  describe('mount collision without --as exits 1 with the mount-exists error', () => {
+    it('writes the mount-exists error verbatim to stderr; no npm subprocess; exits 1', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
       });
@@ -411,10 +412,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-E5 / EC-9: npm subprocess non-zero exit
+  // npm subprocess non-zero exit
   // ============================================================
 
-  describe('AC-E5/EC-9: npm non-zero exit propagates; config byte-equal', () => {
+  describe('npm non-zero exit propagates; config byte-equal', () => {
     it('exits with npm exit code; rill-config.json unchanged; no rollback line', async () => {
       bootstrapProject(tmpDir);
       const configBefore = fs.readFileSync(
@@ -450,17 +451,17 @@ describe('install', () => {
   });
 
   // ============================================================
-  // AC-E6 / EC-10: loadProject validation fails after install
+  // loadProject validation fails after install
   // ============================================================
 
-  describe('AC-E6/EC-10: factory failures no longer block install (FRICTION-NOTES 2026-05-03)', () => {
+  describe('factory failures no longer block install (FRICTION-NOTES 2026-05-03)', () => {
     it('install ignores factory errors entirely; loadProject is never invoked', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
       writeInstalledPkg(prefix, '@rcrsr/rill-ext-datetime', '0.19.0');
 
       // npm succeeds; loadProject would reject if called, but install must not
-      // call it. The previous AC-E6/EC-10 contract (rollback on factory error)
+      // call it. The previous contract (rollback on factory error)
       // is intentionally dropped: factory validation lives in 'rill describe
       // project' and 'rill run', not install.
       mocks.spawn.mockImplementation(makeSpawnMock(0));
@@ -490,10 +491,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // EC-11: writeFileSync fails after npm install
+  // writeFileSync fails after npm install
   // ============================================================
 
-  describe('EC-11: writeFileSync fails after npm install', () => {
+  describe('writeFileSync fails after npm install', () => {
     it('emits out-of-sync message to stderr and exits 1', async () => {
       bootstrapProject(tmpDir);
       const prefix = path.join(tmpDir, '.rill', 'npm');
@@ -533,10 +534,10 @@ describe('install', () => {
   });
 
   // ============================================================
-  // EC-31: npm not on PATH (NpmNotFoundError)
+  // npm not on PATH (NpmNotFoundError)
   // ============================================================
 
-  describe('EC-31: npm not on PATH exits 1 with readable message', () => {
+  describe('npm not on PATH exits 1 with readable message', () => {
     it('emits "npm not found on PATH" to stderr and exits 1', async () => {
       bootstrapProject(tmpDir);
 
@@ -743,6 +744,7 @@ describe('install', () => {
       expect(out).toContain('[dry-run] mount: datetime');
       expect(out).toContain('[dry-run] specifier: @rcrsr/rill-ext-datetime');
       expect(out).toContain('[dry-run] would run: npm install');
+      expect(out).not.toContain('role is finalized at install time');
     });
   });
 
@@ -852,6 +854,314 @@ describe('install', () => {
       const err = cap.stderr.join('');
       expect(err).toContain('rill-config.json not found');
       expect(err).toContain("Run 'rill init'");
+    });
+  });
+
+  // ============================================================
+  // W-1 / #62: local package name preferred over derived mount basename
+  // ============================================================
+
+  describe('local package name preferred over derived mount basename', () => {
+    it('records the harness by its package.json name, not the directory basename, in a bundle', async () => {
+      const localHarnessDir = path.join(tmpDir, 'local-harness');
+      fs.mkdirSync(localHarnessDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(localHarnessDir, 'package.json'),
+        JSON.stringify({
+          name: 'custom-harness-name',
+          version: '1.0.0',
+          rill: { role: 'harness' },
+        }),
+        'utf8'
+      );
+
+      fs.writeFileSync(
+        path.join(tmpDir, 'rill-bundle.json'),
+        JSON.stringify(
+          {
+            name: 'test-bundle',
+            version: '1.0.0',
+            packages: [{ mount: 'app', project: 'packages/app' }],
+          },
+          null,
+          2
+        ) + '\n',
+        'utf8'
+      );
+      bootstrapProject(tmpDir);
+
+      mocks.spawn.mockImplementation(makeSpawnMock(0));
+
+      const { run } = await import('../../src/commands/install.js');
+      const cap = captureOutput();
+      let exitCode: number;
+      try {
+        exitCode = await run(['./local-harness']);
+      } finally {
+        cap.restore();
+      }
+
+      expect(exitCode).toBe(0);
+      const bundleConfig = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, 'rill-bundle.json'), 'utf8')
+      ) as { harness?: string };
+      expect(bundleConfig.harness).toBe('custom-harness-name');
+      expect(cap.stdout.join('')).toContain(
+        "Harness 'custom-harness-name' recorded"
+      );
+    });
+  });
+
+  // ============================================================
+  // W-1 / #61-1: writeBundleHarness BundleConfigError is caught, not thrown
+  // ============================================================
+
+  describe('writeBundleHarness failure surfaces as a ✗-prefixed error, not a stack trace', () => {
+    it.skipIf(process.platform === 'win32')(
+      'exits 1 with a ✗-prefixed message and no raw stack trace when the write fails',
+      async () => {
+        const localHarnessDir = path.join(tmpDir, 'local-harness');
+        fs.mkdirSync(localHarnessDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(localHarnessDir, 'package.json'),
+          JSON.stringify({
+            name: 'custom-harness-name',
+            version: '1.0.0',
+            rill: { role: 'harness' },
+          }),
+          'utf8'
+        );
+
+        fs.writeFileSync(
+          path.join(tmpDir, 'rill-bundle.json'),
+          JSON.stringify(
+            {
+              name: 'test-bundle',
+              version: '1.0.0',
+              packages: [{ mount: 'app', project: 'packages/app' }],
+            },
+            null,
+            2
+          ) + '\n',
+          'utf8'
+        );
+        bootstrapProject(tmpDir);
+
+        mocks.spawn.mockImplementation(makeSpawnMock(0));
+
+        // Force the rill-bundle.json write inside writeBundleHarness to fail
+        // with EACCES. The write is now atomic (temp file + rename), so a
+        // read-only *file* no longer blocks it — rename replaces it regardless
+        // of the destination's permission bits. Make the *directory* read-only
+        // instead, so the temp-file write itself fails. readRawBundleJson (a
+        // read) still succeeds, so the collision pre-check passes and only the
+        // write itself fails.
+        fs.chmodSync(tmpDir, 0o555);
+
+        const { run } = await import('../../src/commands/install.js');
+        const cap = captureOutput();
+        let exitCode: number;
+        try {
+          exitCode = await run(['./local-harness']);
+        } finally {
+          cap.restore();
+          fs.chmodSync(tmpDir, 0o755);
+        }
+
+        expect(exitCode).toBe(1);
+        const stderr = cap.stderr.join('');
+        expect(stderr).toMatch(/^✗ /);
+        expect(stderr).not.toContain('at ');
+      }
+    );
+  });
+
+  // ============================================================
+  // W-1 / #61-2: package-mode readConfigSnapshot guard (missing config)
+  // ============================================================
+
+  describe('package-mode install with rill-config.json missing', () => {
+    it('exits 1 with the bootstrap-hint message, verbatim, before any npm call', async () => {
+      // Bootstrap .rill/npm/ only; rill-config.json is never written.
+      const rillNpm = path.join(tmpDir, '.rill', 'npm');
+      fs.mkdirSync(rillNpm, { recursive: true });
+      fs.writeFileSync(
+        path.join(rillNpm, 'package.json'),
+        '{"name":"rill-extensions","private":true}\n',
+        'utf8'
+      );
+
+      const { run } = await import('../../src/commands/install.js');
+      const cap = captureOutput();
+      let exitCode: number;
+      try {
+        exitCode = await run(['@rcrsr/rill-ext-datetime']);
+      } finally {
+        cap.restore();
+      }
+
+      expect(exitCode).toBe(1);
+      const err = cap.stderr.join('');
+      expect(err).toContain('✗ rill-config.json not found');
+      expect(err).toContain("Run 'rill init'");
+      expect(mocks.spawn).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================================================
+  // W-1 / #61-3: malformed rill-config.json surfaces as ConfigParseError
+  // ============================================================
+
+  describe('malformed rill-config.json surfaces as a ConfigParseError, not a raw SyntaxError', () => {
+    it('exits 1 with a ✗-prefixed parse error before any npm call', async () => {
+      bootstrapProject(tmpDir);
+      fs.writeFileSync(
+        path.join(tmpDir, 'rill-config.json'),
+        '{ not valid json',
+        'utf8'
+      );
+
+      const { run } = await import('../../src/commands/install.js');
+      const cap = captureOutput();
+      let exitCode: number;
+      try {
+        exitCode = await run(['@rcrsr/rill-ext-datetime']);
+      } finally {
+        cap.restore();
+      }
+
+      expect(exitCode).toBe(1);
+      const err = cap.stderr.join('');
+      expect(err).toMatch(/^✗ /);
+      expect(err).toContain('Failed to parse');
+      expect(mocks.spawn).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================================================
+  // W-1 / #65g: single-file source rejects --for and --role
+  // ============================================================
+
+  describe('single-file source rejects --for and --role', () => {
+    it('exits 1 without touching rill-config.json when --for is passed', async () => {
+      bootstrapProject(tmpDir);
+      const extPath = path.join(tmpDir, 'extensions', 'crawler.ts');
+      fs.mkdirSync(path.dirname(extPath), { recursive: true });
+      fs.writeFileSync(extPath, 'export default {};', 'utf8');
+      const configBefore = fs.readFileSync(
+        path.join(tmpDir, 'rill-config.json'),
+        'utf8'
+      );
+
+      const { run } = await import('../../src/commands/install.js');
+      const cap = captureOutput();
+      let exitCode: number;
+      try {
+        exitCode = await run([
+          './extensions/crawler.ts',
+          '--as',
+          'crawler',
+          '--for',
+          'app',
+        ]);
+      } finally {
+        cap.restore();
+      }
+
+      expect(exitCode).toBe(1);
+      expect(cap.stderr.join('')).toContain(
+        '--for/--role are not valid for single-file sources'
+      );
+      const configAfter = fs.readFileSync(
+        path.join(tmpDir, 'rill-config.json'),
+        'utf8'
+      );
+      expect(configAfter).toBe(configBefore);
+    });
+
+    it('exits 1 when --role is passed', async () => {
+      bootstrapProject(tmpDir);
+      const extPath = path.join(tmpDir, 'extensions', 'crawler.ts');
+      fs.mkdirSync(path.dirname(extPath), { recursive: true });
+      fs.writeFileSync(extPath, 'export default {};', 'utf8');
+
+      const { run } = await import('../../src/commands/install.js');
+      const cap = captureOutput();
+      let exitCode: number;
+      try {
+        exitCode = await run([
+          './extensions/crawler.ts',
+          '--as',
+          'crawler',
+          '--role',
+          'extension',
+        ]);
+      } finally {
+        cap.restore();
+      }
+
+      expect(exitCode).toBe(1);
+      expect(cap.stderr.join('')).toContain(
+        '--for/--role are not valid for single-file sources'
+      );
+    });
+  });
+
+  // ============================================================
+  // W-1 / #65g: --dry-run preview echoes --for and --role
+  // ============================================================
+
+  describe('--dry-run preview echoes the effective --for target and --role', () => {
+    it('prints [dry-run] for/role lines and a role-finalizes-at-install-time note', async () => {
+      bootstrapProject(tmpDir);
+
+      const { run } = await import('../../src/commands/install.js');
+      const cap = captureOutput();
+      let exitCode: number;
+      try {
+        exitCode = await run([
+          '@rcrsr/rill-ext-datetime',
+          '--dry-run',
+          '--for',
+          'app',
+          '--role',
+          'harness',
+        ]);
+      } finally {
+        cap.restore();
+      }
+
+      expect(exitCode).toBe(0);
+      expect(mocks.spawn).not.toHaveBeenCalled();
+      const out = cap.stdout.join('');
+      expect(out).toContain('[dry-run] for: app');
+      expect(out).toContain('[dry-run] role: harness');
+      expect(out).toContain('role is finalized at install time');
+    });
+  });
+
+  // ============================================================
+  // W-1 / #65j: --exact deprecation warning names 0.21, not 0.20
+  // ============================================================
+
+  describe('--exact deprecation warning names the removal version 0.21', () => {
+    it('warns with "removed in 0.21"', async () => {
+      bootstrapProject(tmpDir);
+      const prefix = path.join(tmpDir, '.rill', 'npm');
+      writeInstalledPkg(prefix, '@rcrsr/rill-ext-datetime', '0.19.0');
+
+      mocks.spawn.mockImplementation(makeSpawnMock(0));
+
+      const { run } = await import('../../src/commands/install.js');
+      const cap = captureOutput();
+      try {
+        await run(['@rcrsr/rill-ext-datetime', '--exact']);
+      } finally {
+        cap.restore();
+      }
+
+      expect(cap.stderr.join('')).toContain('removed in 0.21');
+      expect(cap.stderr.join('')).not.toContain('removed in 0.20');
     });
   });
 });

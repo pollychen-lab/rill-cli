@@ -2,9 +2,9 @@
  * Rill CLI Tests: rill-eval command
  */
 
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ParseError, RuntimeError } from '@rcrsr/rill';
 import { evaluateExpression } from '../../src/cli-eval.js';
 
@@ -100,22 +100,19 @@ describe('rill-eval', () => {
     });
 
     it('preserves error details', async () => {
-      try {
-        await evaluateExpression('$missing');
-      } catch (err) {
-        expect(err).toBeInstanceOf(RuntimeError);
-        expect((err as RuntimeError).errorId).toBe('RILL-R005');
-        expect((err as RuntimeError).location?.line).toBe(1);
-      }
+      await expect(evaluateExpression('$missing')).rejects.toSatisfy(
+        (err: unknown) => {
+          expect(err).toBeInstanceOf(RuntimeError);
+          expect((err as RuntimeError).errorId).toBe('RILL-R005');
+          expect((err as RuntimeError).location?.line).toBe(1);
+          return true;
+        }
+      );
     });
   });
 });
 
 describe('rill-eval CLI flags', () => {
-  beforeAll(() => {
-    execSync('pnpm run build', { stdio: 'ignore' });
-  }, 30000);
-
   describe('--help flag', () => {
     it('exits 0 and prints usage for --help', () => {
       const result = run(['--help']);
@@ -171,6 +168,18 @@ describe('rill-eval CLI flags', () => {
       const result = run(['"hello".len']);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('5');
+    });
+
+    it('treats a leading negative number as an expression, not a flag', () => {
+      const result = run(['-5 + 3']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('-2');
+    });
+
+    it('still rejects an unknown long-form flag like --bogus', () => {
+      const result = run(['--bogus']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Unknown option: --bogus');
     });
   });
 });

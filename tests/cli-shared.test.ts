@@ -188,7 +188,7 @@ describe('cli-shared', () => {
       });
     });
 
-    describe('ENOENT errors [AC-4]', () => {
+    describe('ENOENT errors', () => {
       it('formats as "File not found: {path}"', () => {
         const err = Object.assign(new Error(), {
           code: 'ENOENT',
@@ -321,7 +321,7 @@ describe('cli-shared', () => {
   });
 
   describe('detectHelpVersionFlag', () => {
-    describe('Help flag detection [AC-4]', () => {
+    describe('Help flag detection', () => {
       it('detects --help flag [IR-3]', () => {
         expect(detectHelpVersionFlag(['--help'])).toEqual({ mode: 'help' });
       });
@@ -356,7 +356,7 @@ describe('cli-shared', () => {
       });
     });
 
-    describe('Version flag detection [AC-4]', () => {
+    describe('Version flag detection', () => {
       it('detects --version flag [IR-3]', () => {
         expect(detectHelpVersionFlag(['--version'])).toEqual({
           mode: 'version',
@@ -380,8 +380,8 @@ describe('cli-shared', () => {
       });
     });
 
-    describe('No flag cases [EC-4, EC-5]', () => {
-      it('returns null for empty array [EC-4]', () => {
+    describe('No flag cases', () => {
+      it('returns null for empty array', () => {
         expect(detectHelpVersionFlag([])).toBeNull();
       });
 
@@ -390,7 +390,7 @@ describe('cli-shared', () => {
         expect(detectHelpVersionFlag(['file.rill', 'arg1', 'arg2'])).toBeNull();
       });
 
-      it('returns null for unknown flags [EC-5]', () => {
+      it('returns null for unknown flags', () => {
         expect(detectHelpVersionFlag(['--unknown'])).toBeNull();
         expect(detectHelpVersionFlag(['--verbose'])).toBeNull();
         expect(detectHelpVersionFlag(['-x'])).toBeNull();

@@ -458,6 +458,27 @@ async function disposeAll(
 // ---------------------------------------------------------------------------
 
 /**
+ * Walk a rill-config.json text for `${env.NAME}` references, returning each
+ * distinct variable name once, in first-seen order.
+ *
+ * Accepts any POSIX-shell-valid env var name. Convention is uppercase, but
+ * Linux is case-sensitive and rill-config doesn't enforce upper-case.
+ */
+function findEnvVarRefs(configText: string): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const re = /\$\{env\.([A-Za-z_][A-Za-z0-9_]*)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(configText)) !== null) {
+    const name = match[1]!;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+/**
  * Walk a rill-config.json text for `${env.NAME}` references and stub any
  * unset env vars to literal "x" so factories construct with a placeholder
  * credential instead of throwing.
@@ -467,15 +488,7 @@ async function disposeAll(
  */
 function applyEnvStubs(configText: string): string[] {
   const stubbed: string[] = [];
-  const seen = new Set<string>();
-  // Accept any POSIX-shell-valid env var name. Convention is uppercase, but
-  // Linux is case-sensitive and rill-config doesn't enforce upper-case.
-  const re = /\$\{env\.([A-Za-z_][A-Za-z0-9_]*)\}/g;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(configText)) !== null) {
-    const name = match[1]!;
-    if (seen.has(name)) continue;
-    seen.add(name);
+  for (const name of findEnvVarRefs(configText)) {
     if (process.env[name] === undefined || process.env[name] === '') {
       process.env[name] = 'x';
       stubbed.push(name);
@@ -517,10 +530,7 @@ async function runProject(args: ProjectArgs): Promise<number> {
       }
       if (configText !== '') {
         // Snapshot before stubbing so the finally block can restore.
-        const re = /\$\{env\.([A-Za-z_][A-Za-z0-9_]*)\}/g;
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(configText)) !== null) {
-          const name = m[1]!;
+        for (const name of findEnvVarRefs(configText)) {
           if (!(name in envSnapshot)) {
             envSnapshot[name] = process.env[name];
           }
@@ -536,61 +546,66 @@ async function runProject(args: ProjectArgs): Promise<number> {
 
     const { configPath, project } = await loadConfigAndProject(args.configFlag);
 
-    const visited = new WeakSet<object>();
-    const mountTrees: { [key: string]: ContractTree } = {};
+    // Enclosing try/finally disposes project.disposes exactly once,
+    // covering both early returns below and the success path. This nests
+    // inside the outer env-restore finally, so env vars are restored after
+    // disposal completes.
+    try {
+      const visited = new WeakSet<object>();
+      const mountTrees: { [key: string]: ContractTree } = {};
 
-    for (const [name, value] of Object.entries(project.extTree)) {
-      const subtree = buildTree(value, visited);
-      if (subtree !== null) {
-        mountTrees[name] = subtree;
-      }
-    }
-
-    let outputMounts: { [key: string]: ContractTree };
-    if (args.mountName !== undefined) {
-      if (!(args.mountName in mountTrees)) {
-        const available = Object.keys(mountTrees).sort().join(', ');
-        process.stderr.write(
-          `Error: mount "${args.mountName}" not found. Available mounts: ${available}\n`
-        );
-        await disposeAll(project.disposes);
-        return 1;
-      }
-      const single = mountTrees[args.mountName]!;
-      outputMounts = { [args.mountName]: single };
-    } else {
-      outputMounts = mountTrees;
-    }
-
-    const output = {
-      rillVersion: VERSION,
-      configPath,
-      mounts: outputMounts,
-    };
-
-    process.stdout.write(JSON.stringify(output, null, 2) + '\n');
-
-    await disposeAll(project.disposes);
-
-    if (args.strict) {
-      const anyPaths: string[] = [];
-      for (const key of Object.keys(outputMounts).sort()) {
-        const child = outputMounts[key];
-        if (child !== undefined) {
-          collectAnyReturnCallables(child, key, anyPaths);
+      for (const [name, value] of Object.entries(project.extTree)) {
+        const subtree = buildTree(value, visited);
+        if (subtree !== null) {
+          mountTrees[name] = subtree;
         }
       }
-      if (anyPaths.length > 0) {
-        for (const p of anyPaths) {
+
+      let outputMounts: { [key: string]: ContractTree };
+      if (args.mountName !== undefined) {
+        if (!(args.mountName in mountTrees)) {
+          const available = Object.keys(mountTrees).sort().join(', ');
           process.stderr.write(
-            `[strict] callable at path "${p}" has returnType: any\n`
+            `Error: mount "${args.mountName}" not found. Available mounts: ${available}\n`
           );
+          return 1;
         }
-        return 1;
+        const single = mountTrees[args.mountName]!;
+        outputMounts = { [args.mountName]: single };
+      } else {
+        outputMounts = mountTrees;
       }
-    }
 
-    return 0;
+      const output = {
+        rillVersion: VERSION,
+        configPath,
+        mounts: outputMounts,
+      };
+
+      process.stdout.write(JSON.stringify(output, null, 2) + '\n');
+
+      if (args.strict) {
+        const anyPaths: string[] = [];
+        for (const key of Object.keys(outputMounts).sort()) {
+          const child = outputMounts[key];
+          if (child !== undefined) {
+            collectAnyReturnCallables(child, key, anyPaths);
+          }
+        }
+        if (anyPaths.length > 0) {
+          for (const p of anyPaths) {
+            process.stderr.write(
+              `[strict] callable at path "${p}" has returnType: any\n`
+            );
+          }
+          return 1;
+        }
+      }
+
+      return 0;
+    } finally {
+      await disposeAll(project.disposes);
+    }
   } finally {
     // Restore any env keys that were stubbed by applyEnvStubs.
     for (const [key, original] of Object.entries(envSnapshot)) {
@@ -607,110 +622,107 @@ async function runHandler(args: HandlerArgs): Promise<number> {
   const { configPath, project } = await loadConfigAndProject(args.configFlag);
   const projectRoot = dirname(configPath);
 
-  const mainField = project.config.main;
-  if (mainField === undefined) {
-    process.stderr.write(
-      'Error: rill-config.json has no main field; nothing to describe\n'
-    );
-    await disposeAll(project.disposes);
-    return 1;
-  }
-
-  let parsedMain: ReturnType<typeof parseMainField>;
+  // Single enclosing try/finally disposes project.disposes exactly once,
+  // covering every early-return path below.
   try {
-    parsedMain = parseMainField(mainField);
-  } catch (err) {
-    if (err instanceof ConfigError) {
-      process.stderr.write(err.message + '\n');
-      await disposeAll(project.disposes);
+    const mainField = project.config.main;
+    if (mainField === undefined) {
+      process.stderr.write(
+        'Error: rill-config.json has no main field; nothing to describe\n'
+      );
       return 1;
     }
-    throw err;
-  }
 
-  const { filePath, handlerName } = parsedMain;
-  if (handlerName === undefined) {
-    process.stderr.write(
-      `Error: main "${mainField}" is not a handler reference; expected "file.rill:handlerName"\n`
-    );
-    await disposeAll(project.disposes);
-    return 1;
-  }
-
-  const absolutePath = resolve(projectRoot, filePath);
-  let source: string;
-  try {
-    source = readFileSync(absolutePath, 'utf-8');
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(message + '\n');
-    await disposeAll(project.disposes);
-    return 1;
-  }
-
-  let ast: ReturnType<typeof parse>;
-  try {
-    ast = parse(source);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(message + '\n');
-    await disposeAll(project.disposes);
-    return 1;
-  }
-
-  const runtimeOptions: RuntimeOptions = {
-    ...project.resolverConfig,
-    parseSource: parse,
-  };
-  const ctx = createRuntimeContext(runtimeOptions);
-
-  try {
-    await execute(ast, ctx);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(message + '\n');
-    await disposeAll(project.disposes);
-    return 1;
-  }
-
-  const handlerValue = ctx.variables.get(handlerName);
-  if (handlerValue === undefined || !isScriptCallable(handlerValue)) {
-    process.stderr.write(
-      `Error: handler "${handlerName}" not found or is not a closure in ${filePath}\n`
-    );
-    await disposeAll(project.disposes);
-    return 1;
-  }
-
-  const entry = buildCallableEntry(handlerValue);
-  const output = {
-    rillVersion: VERSION,
-    configPath,
-    handler: {
-      name: handlerName,
-      file: filePath,
-      ...entry,
-    },
-  };
-
-  process.stdout.write(JSON.stringify(output, null, 2) + '\n');
-
-  await disposeAll(project.disposes);
-
-  if (args.strict) {
-    const anyPaths: string[] = [];
-    collectAnyReturnCallables(entry, `handler.${handlerName}`, anyPaths);
-    if (anyPaths.length > 0) {
-      for (const p of anyPaths) {
-        process.stderr.write(
-          `[strict] callable at path "${p}" has returnType: any\n`
-        );
+    let parsedMain: ReturnType<typeof parseMainField>;
+    try {
+      parsedMain = parseMainField(mainField);
+    } catch (err) {
+      if (err instanceof ConfigError) {
+        process.stderr.write(err.message + '\n');
+        return 1;
       }
+      throw err;
+    }
+
+    const { filePath, handlerName } = parsedMain;
+    if (handlerName === undefined) {
+      process.stderr.write(
+        `Error: main "${mainField}" is not a handler reference; expected "file.rill:handlerName"\n`
+      );
       return 1;
     }
-  }
 
-  return 0;
+    const absolutePath = resolve(projectRoot, filePath);
+    let source: string;
+    try {
+      source = readFileSync(absolutePath, 'utf-8');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(message + '\n');
+      return 1;
+    }
+
+    let ast: ReturnType<typeof parse>;
+    try {
+      ast = parse(source);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(message + '\n');
+      return 1;
+    }
+
+    const runtimeOptions: RuntimeOptions = {
+      ...project.resolverConfig,
+      parseSource: parse,
+    };
+    const ctx = createRuntimeContext(runtimeOptions);
+
+    try {
+      await execute(ast, ctx);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(message + '\n');
+      return 1;
+    }
+
+    const handlerValue = ctx.variables.get(handlerName);
+    if (handlerValue === undefined || !isScriptCallable(handlerValue)) {
+      process.stderr.write(
+        `Error: handler "${handlerName}" not found or is not a closure in ${filePath}\n`
+      );
+      return 1;
+    }
+
+    const entry = buildCallableEntry(handlerValue);
+    const output = {
+      rillVersion: VERSION,
+      configPath,
+      handler: {
+        name: handlerName,
+        file: filePath,
+        ...entry,
+      },
+    };
+
+    process.stdout.write(JSON.stringify(output, null, 2) + '\n');
+
+    if (args.strict) {
+      const anyPaths: string[] = [];
+      collectAnyReturnCallables(entry, `handler.${handlerName}`, anyPaths);
+      if (anyPaths.length > 0) {
+        for (const p of anyPaths) {
+          process.stderr.write(
+            `[strict] callable at path "${p}" has returnType: any\n`
+          );
+        }
+        return 1;
+      }
+    }
+
+    return 0;
+  } finally {
+    await disposeAll(project.disposes);
+  }
 }
 
 function runBuiltins(args: BuiltinsArgs): number {

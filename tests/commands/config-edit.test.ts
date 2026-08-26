@@ -1,7 +1,7 @@
 /**
  * Unit tests for config-edit.ts helpers:
- *   readConfigSnapshot (IR-12, EC-28)
- *   applyMountEdit     (IR-13, EC-29, EC-30)
+ *   readConfigSnapshot (IR-12)
+ *   applyMountEdit     (IR-13)
  *   hasMount           (IR-14)
  */
 
@@ -49,7 +49,7 @@ function writeConfig(dir: string, content: object): string {
 }
 
 // ============================================================
-// TESTS: readConfigSnapshot (IR-12, EC-28)
+// TESTS: readConfigSnapshot (IR-12)
 // ============================================================
 
 describe('readConfigSnapshot', () => {
@@ -57,7 +57,7 @@ describe('readConfigSnapshot', () => {
     vi.resetAllMocks();
   });
 
-  it('throws ConfigNotFoundError when rill-config.json is absent (EC-28 / IR-12)', async () => {
+  it('throws ConfigNotFoundError when rill-config.json is absent (IR-12)', async () => {
     const tmpDir = makeTmpDir();
     try {
       const { readConfigSnapshot, ConfigNotFoundError } =
@@ -68,6 +68,32 @@ describe('readConfigSnapshot', () => {
       });
       await expect(readConfigSnapshot(tmpDir)).rejects.toBeInstanceOf(
         ConfigNotFoundError
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws ConfigParseError, not a raw SyntaxError, when rill-config.json is malformed JSON (W-1 / #61-3)', async () => {
+    const tmpDir = makeTmpDir();
+    fs.writeFileSync(
+      path.join(tmpDir, 'rill-config.json'),
+      '{ not valid json',
+      'utf8'
+    );
+
+    try {
+      const { readConfigSnapshot, ConfigParseError } =
+        await import('../../src/commands/config-edit.js');
+
+      await expect(readConfigSnapshot(tmpDir)).rejects.toBeInstanceOf(
+        ConfigParseError
+      );
+      await expect(readConfigSnapshot(tmpDir)).rejects.toMatchObject({
+        name: 'ConfigParseError',
+      });
+      await expect(readConfigSnapshot(tmpDir)).rejects.not.toBeInstanceOf(
+        SyntaxError
       );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -98,7 +124,7 @@ describe('readConfigSnapshot', () => {
 });
 
 // ============================================================
-// TESTS: applyMountEdit (IR-13, EC-29, EC-30)
+// TESTS: applyMountEdit (IR-13)
 // ============================================================
 
 describe('applyMountEdit', () => {
@@ -158,7 +184,7 @@ describe('applyMountEdit', () => {
     }
   });
 
-  it('restores original rawText and re-throws MountValidationError on rollback (EC-29)', async () => {
+  it('restores original rawText and re-throws MountValidationError on rollback', async () => {
     const tmpDir = makeTmpDir();
     const configContent = {
       version: '1',
@@ -188,7 +214,111 @@ describe('applyMountEdit', () => {
       // File must be byte-for-byte equal to original rawText after rollback.
       const afterContent = fs.readFileSync(snapshot.path, 'utf8');
       expect(afterContent).toBe(originalRawText);
+
+      // The rollback goes through atomicWriteFile: no leftover .tmp file
+      // from either the edit write or the rollback write.
+      const residue = fs.readdirSync(tmpDir).filter((f) => f.endsWith('.tmp'));
+      expect(residue).toEqual([]);
     } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('marks a successful rollback with rolledBack: true (W-1 / #65i)', async () => {
+    const tmpDir = makeTmpDir();
+    const configContent = {
+      version: '1',
+      extensions: { mounts: { existing: 'base@1.0.0' } },
+    };
+    writeConfig(tmpDir, configContent);
+
+    const validationError = new Error('mount failed');
+    validationError.name = 'MountValidationError';
+    loadProjectMock.mockRejectedValue(validationError);
+
+    try {
+      const { readConfigSnapshot, applyMountEdit } =
+        await import('../../src/commands/config-edit.js');
+
+      const snapshot = await readConfigSnapshot(tmpDir);
+
+      let caught: unknown;
+      try {
+        await applyMountEdit(
+          snapshot,
+          { kind: 'add', mount: 'bad', value: 'broken@0.0.1' },
+          tmpDir
+        );
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toMatchObject({ name: 'MountValidationError' });
+      expect((caught as { rolledBack?: boolean }).rolledBack).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('signals a rollback-write failure with rolledBack: false and rollbackCause, and leaves the modified config on disk (W-1 / #65i)', async () => {
+    const tmpDir = makeTmpDir();
+    const configContent = {
+      version: '1',
+      extensions: { mounts: { existing: 'base@1.0.0' } },
+    };
+    writeConfig(tmpDir, configContent);
+
+    const validationError = new Error('mount failed');
+    validationError.name = 'MountValidationError';
+    loadProjectMock.mockRejectedValue(validationError);
+
+    const origWriteFile = fs.promises.writeFile.bind(fs.promises);
+    let writeCallCount = 0;
+    const writeSpy = vi
+      .spyOn(fs.promises, 'writeFile')
+      .mockImplementation(async (...args: Parameters<typeof origWriteFile>) => {
+        writeCallCount++;
+        // First write = the edit itself; let it through. Second write = the
+        // rollback attempt; fail it to simulate a rollback-write failure.
+        if (writeCallCount === 1) {
+          return origWriteFile(...args);
+        }
+        throw new Error('EACCES: rollback write denied');
+      });
+
+    try {
+      const { readConfigSnapshot, applyMountEdit } =
+        await import('../../src/commands/config-edit.js');
+
+      const snapshot = await readConfigSnapshot(tmpDir);
+
+      let caught: unknown;
+      try {
+        await applyMountEdit(
+          snapshot,
+          { kind: 'add', mount: 'bad', value: 'broken@0.0.1' },
+          tmpDir
+        );
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toMatchObject({ name: 'MountValidationError' });
+      const marked = caught as {
+        rolledBack?: boolean;
+        rollbackCause?: unknown;
+      };
+      expect(marked.rolledBack).toBe(false);
+      expect(marked.rollbackCause).toBeInstanceOf(Error);
+
+      // rill-config.json is left in the modified (unrolled-back) state.
+      const afterContent = fs.readFileSync(snapshot.path, 'utf8');
+      const afterParsed = JSON.parse(afterContent) as {
+        extensions: { mounts: Record<string, string> };
+      };
+      expect(afterParsed.extensions.mounts['bad']).toBe('broken@0.0.1');
+    } finally {
+      writeSpy.mockRestore();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
@@ -219,7 +349,7 @@ describe('applyMountEdit', () => {
     }
   });
 
-  it('throws ConfigWriteError when writeFile fails (EC-30)', async () => {
+  it('throws ConfigWriteError when writeFile fails', async () => {
     const tmpDir = makeTmpDir();
     const configContent = { version: '1', extensions: { mounts: {} } };
     writeConfig(tmpDir, configContent);

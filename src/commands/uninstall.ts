@@ -1,43 +1,39 @@
 /**
  * rill uninstall: Remove an extension mount and uninstall from .rill/npm/.
  *
- * Constraints (FR-EXT-5, UXI-EXT-5):
- * - assertBootstrapped pre-check before any config or npm operation (EC-13)
- * - Mount existence pre-check before any config edit (EC-14)
+ * Constraints:
+ * - assertBootstrapped pre-check before any config or npm operation
+ * - Mount existence pre-check before any config edit
  * - Config written first (mount removed), then npm uninstall, then loadProject validation
- * - On validation failure (EC-16): do NOT roll back — mount removal is the desired terminal state
- * - Project-root package.json MUST NOT be modified (NFR-EXT-6)
+ * - On validation failure: do NOT roll back — mount removal is the desired terminal state
+ * - Project-root package.json MUST NOT be modified
  */
 
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { loadProject } from '@rcrsr/rill-config';
-import { assertBootstrapped, BootstrapMissingError } from './prefix.js';
-import { readConfigSnapshot, hasMount, applyMountEdit } from './config-edit.js';
-import { npmUninstall, NpmNotFoundError } from './npm-runner.js';
-import { isLocalPath, looksLikeLocalFilePath } from './mount-derive.js';
+import {
+  readConfigSnapshot,
+  hasMount,
+  applyMountEdit,
+  assertBootstrappedOrReport,
+  reportNpmNotFound,
+  ConfigNotFoundError,
+  ConfigParseError,
+} from './config-edit.js';
+import { npmUninstall } from './npm-runner.js';
+import {
+  extractPackageName,
+  isLocalPath,
+  looksLikeLocalFilePath,
+  readLocalPackageName,
+} from './mount-derive.js';
 import {
   resolveExtensionTarget,
   resolveHarnessTarget,
 } from './bundle-resolve.js';
-import { writeBundleHarness } from '../bundle/config.js';
+import { writeBundleHarness, BundleConfigError } from '../bundle/config.js';
 import { CLI_VERSION } from '../cli-shared.js';
-
-// ---------------------------------------------------------------------------
-// Local interface that mirrors the companion @rcrsr/rill-config release which
-// adds the `prefix` parameter to loadProject. Cast through this until the
-// published types catch up.
-// ---------------------------------------------------------------------------
-interface LoadProjectWithPrefix {
-  (options: {
-    configPath: string;
-    rillVersion: string;
-    prefix?: string;
-    signal?: AbortSignal;
-  }): Promise<unknown>;
-}
-
-const loadProjectWithPrefix = loadProject as unknown as LoadProjectWithPrefix;
 
 // ============================================================
 // HELP TEXT
@@ -66,21 +62,21 @@ Options:
  * Derive the npm package name from a config specifier.
  *
  * - Registry specifier (e.g. "@rcrsr/rill-ext-datetime@^0.19.0"): strip the
- *   trailing version qualifier (last '@' not at position 0).
- * - Local-path specifier (starts with './', '../', or '/'): npm symlinks under
- *   node_modules/<mount>, so the package name IS the mount name.
+ *   trailing version qualifier via {@link extractPackageName}.
+ * - Local-path specifier (starts with './', '../', or '/'): prefer the
+ *   linked package's own `package.json` `name` field
+ *   (`readLocalPackageName`), falling back to the mount name when it cannot
+ *   be read.
  */
-function deriveNpmPackageName(specifier: string, mount: string): string {
+function deriveNpmPackageName(
+  specifier: string,
+  mount: string,
+  projectDir: string
+): string {
   if (isLocalPath(specifier)) {
-    return mount;
+    return readLocalPackageName(specifier, projectDir) ?? mount;
   }
-
-  // Strip trailing version qualifier: find last '@' after position 0.
-  const atIndex = specifier.indexOf('@', 1);
-  if (atIndex === -1) {
-    return specifier;
-  }
-  return specifier.slice(0, atIndex);
+  return extractPackageName(specifier);
 }
 
 // ============================================================
@@ -90,11 +86,9 @@ function deriveNpmPackageName(specifier: string, mount: string): string {
 /**
  * Uninstall an extension from the current project.
  *
- * Implements UXI-EXT-5 order of operations per spec FR-EXT-5.
- *
- * EC-16 compliance: config is written without rollback wiring. If loadProject
- * validation fails after config write, we do NOT restore the original config.
- * The mount removal is the desired terminal state even on validation failure.
+ * Config is written without rollback wiring. If loadProject validation fails
+ * after the config write, we do NOT restore the original config: the mount
+ * removal is the desired terminal state even on validation failure.
  */
 export async function run(argv: string[]): Promise<number> {
   // ---- Argument parsing ----
@@ -128,22 +122,19 @@ export async function run(argv: string[]): Promise<number> {
     }
     const { target } = resolvedHarness;
 
+    if (!assertBootstrappedOrReport(target.bundleRoot)) return 1;
+
+    process.stdout.write(`ℹ Removing harness '${target.harnessName}'...\n`);
+
     try {
-      assertBootstrapped(target.bundleRoot);
+      await writeBundleHarness(target.bundleRoot, null);
     } catch (err) {
-      if (err instanceof BootstrapMissingError) {
-        process.stderr.write('✗ .rill/npm/ not found\n');
-        process.stderr.write(
-          "  Run 'rill init' first to initialize the project\n"
-        );
+      if (err instanceof BundleConfigError) {
+        process.stderr.write(`✗ ${err.message}\n`);
         return 1;
       }
       throw err;
     }
-
-    process.stdout.write(`ℹ Removing harness '${target.harnessName}'...\n`);
-
-    await writeBundleHarness(target.bundleRoot, null);
     process.stdout.write('✓ Removed harness from rill-bundle.json\n');
 
     try {
@@ -155,13 +146,7 @@ export async function run(argv: string[]): Promise<number> {
         return npmResult.exitCode;
       }
     } catch (err) {
-      if (err instanceof NpmNotFoundError) {
-        process.stderr.write(
-          'npm not found on PATH; install Node.js with npm\n'
-        );
-        return 1;
-      }
-      throw err;
+      return reportNpmNotFound(err);
     }
 
     process.stdout.write(
@@ -185,24 +170,29 @@ export async function run(argv: string[]): Promise<number> {
   const { targetDir, prefix } = resolved.target;
 
   // ---- Step 1: assertBootstrapped ----
-  // EC-13: .rill/npm/ missing -> UXT-EXT-5 verbatim, exit 1
+  // .rill/npm/ missing -> the bootstrap-missing message, verbatim, exit 1
+  if (!assertBootstrappedOrReport(targetDir)) return 1;
+
+  // ---- Step 2: Read config snapshot + mount existence check ----
+  let snapshot: Awaited<ReturnType<typeof readConfigSnapshot>>;
   try {
-    assertBootstrapped(targetDir);
+    snapshot = await readConfigSnapshot(targetDir);
   } catch (err) {
-    if (err instanceof BootstrapMissingError) {
-      process.stderr.write('✗ .rill/npm/ not found\n');
+    if (err instanceof ConfigNotFoundError) {
+      process.stderr.write('✗ rill-config.json not found\n');
       process.stderr.write(
         "  Run 'rill init' first to initialize the project\n"
       );
       return 1;
     }
+    if (err instanceof ConfigParseError) {
+      process.stderr.write(`✗ ${err.message}\n`);
+      return 1;
+    }
     throw err;
   }
 
-  // ---- Step 2: Read config snapshot + mount existence check ----
-  const snapshot = await readConfigSnapshot(targetDir);
-
-  // EC-14: Mount not in config -> UXT-EXT-8 verbatim, exit 1; NO edit, NO npm
+  // Mount not in config -> the not-installed message, verbatim, exit 1; NO edit, NO npm
   if (!hasMount(snapshot, mount)) {
     process.stderr.write(`✗ Mount '${mount}' not found in rill-config.json\n`);
     process.stderr.write("  Run 'rill list' to see installed extensions\n");
@@ -212,20 +202,20 @@ export async function run(argv: string[]): Promise<number> {
   // ---- Step 3: Read specifier from mount value ----
   const specifierVerbatim =
     snapshot.parsed.extensions?.mounts?.[mount] ?? mount;
-  const pkgName = deriveNpmPackageName(specifierVerbatim, mount);
+  const pkgName = deriveNpmPackageName(specifierVerbatim, mount, targetDir);
   const localFile = looksLikeLocalFilePath(specifierVerbatim);
 
-  // ---- Step 4: Print removal start message (UXT-EXT-7 line 1) ----
+  // ---- Step 4: Print removal start message (line 1 of 4) ----
   process.stdout.write(
     `ℹ Removing mount '${mount}' (${specifierVerbatim})...\n`
   );
 
-  // ---- Step 5: Write config with mount removed (EC-16: skipValidation = no rollback wiring) ----
+  // ---- Step 5: Write config with mount removed (skipValidation = no rollback wiring) ----
   await applyMountEdit(snapshot, { kind: 'remove', mount }, prefix, {
     skipValidation: true,
   });
 
-  // ---- Step 6: Print config updated (UXT-EXT-7 line 2) ----
+  // ---- Step 6: Print config updated (line 2 of 4) ----
   process.stdout.write('✓ Updated rill-config.json\n');
 
   // ---- Step 7: npm uninstall (skipped for single-file local sources) ----
@@ -239,32 +229,26 @@ export async function run(argv: string[]): Promise<number> {
     try {
       npmResult = await npmUninstall({ spec: pkgName, prefix });
     } catch (err) {
-      if (err instanceof NpmNotFoundError) {
-        process.stderr.write(
-          'npm not found on PATH; install Node.js with npm\n'
-        );
-        return 1;
-      }
-      throw err;
+      return reportNpmNotFound(err);
     }
 
-    // EC-15: npm uninstall non-zero exit -> propagate exit code; npm already streamed stderr
+    // npm uninstall non-zero exit -> propagate exit code; npm already streamed stderr
     if (npmResult.exitCode !== 0) {
       return npmResult.exitCode;
     }
 
-    // UXT-EXT-7 line 3: uninstalled message
-    // AC-B9: missing package directory is NOT an error; npm uninstall returns 0 in that case.
+    // Line 3 of 4: uninstalled message
+    // missing package directory is NOT an error; npm uninstall returns 0 in that case.
     process.stdout.write(
       `✓ Uninstalled from .rill/npm/node_modules/${pkgName}\n`
     );
   }
 
   // ---- Step 8: Post-uninstall loadProject validation ----
-  // EC-16: on failure do NOT roll back config; emit error and return 1.
+  // on failure do NOT roll back config; emit error and return 1.
   const configPath = path.resolve(targetDir, 'rill-config.json');
   try {
-    await loadProjectWithPrefix({
+    await loadProject({
       configPath,
       rillVersion: CLI_VERSION,
       prefix,
@@ -280,7 +264,7 @@ export async function run(argv: string[]): Promise<number> {
     return 1;
   }
 
-  // UXT-EXT-7 line 4
+  // Line 4 of 4
   process.stdout.write('✓ Verified config loads cleanly\n');
 
   return 0;

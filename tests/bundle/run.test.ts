@@ -156,15 +156,14 @@ export default harness;
       // the shutdown signal promise resolves runBundleServe's internal race.
       const servePromise = runBundleServe(bundleDir, {});
 
-      // Allow the event loop to advance so SIGINT/SIGTERM listeners register
-      // and the harness shutdown handler registers inside serve().
-      await new Promise<void>((r) => setTimeout(r, 100));
-
-      // Verify the SIGINT listener was registered before firing it.
-      expect(
-        process.listenerCount('SIGINT'),
-        'SIGINT listener must have been registered'
-      ).toBeGreaterThan(0);
+      // Poll until the SIGINT listener registers instead of waiting a fixed
+      // duration: registration happens asynchronously inside serve().
+      await vi.waitFor(
+        () => {
+          expect(process.listenerCount('SIGINT')).toBeGreaterThan(0);
+        },
+        { timeout: 5000, interval: 10 }
+      );
 
       // Emit SIGINT — the once-listener fires handleSignal() asynchronously.
       process.emit('SIGINT');
@@ -273,6 +272,56 @@ export default harness;
 });
 
 // ============================================================
+// TEST 4: onSourceChange is unimplemented — warns exactly once
+// ============================================================
+
+describe('runBundleServe onSourceChange', () => {
+  it('warns exactly once when onSourceChange is registered multiple times', async () => {
+    const bundleDir = makeTmpDir();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      writeBundleJson(bundleDir, {
+        name: 'source-change-bundle',
+        version: '1.0.0',
+        harness: 'source-change-harness',
+        packages: [{ mount: 'pkg', project: 'packages/pkg' }],
+      });
+
+      // The harness calls ctx.onSourceChange twice with different handlers,
+      // then resolves so serve() completes.
+      const harnessSource = `
+const harness = {
+  name: 'source-change-harness',
+  async serve(ctx) {
+    ctx.onSourceChange(() => {});
+    ctx.onSourceChange(() => {});
+    return 0;
+  },
+};
+export default harness;
+`;
+      installFakeHarness(bundleDir, 'source-change-harness', harnessSource);
+      stubBuildPackageSuccess(bundleDir);
+
+      const { runBundleServe } =
+        await import('../../src/commands/bundle-run.js');
+
+      const result = await runBundleServe(bundleDir, {});
+
+      expect(result).toBe(0);
+      const sourceChangeWarnings = warnSpy.mock.calls.filter((call) =>
+        String(call[0]).includes('onSourceChange is not implemented')
+      );
+      expect(sourceChangeWarnings).toHaveLength(1);
+    } finally {
+      warnSpy.mockRestore();
+      fs.rmSync(bundleDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ============================================================
 // DOCUMENTATION: concurrent install is out of scope
 //
 // runBundleServe does not coordinate concurrent rill install
@@ -282,8 +331,7 @@ export default harness;
 // bundle-run lifecycle contract.
 // ============================================================
 
-describe('concurrent install behavior', () => {
-  it.todo(
-    'concurrent rill install during serve is out of scope — no locking is provided'
-  );
-});
+// Concurrent `rill install` during serve is out of scope and no locking is
+// provided, so there is no behaviour to assert. Recorded as a note rather than
+// an `it.todo`: a todo never runs, so it reads as owed coverage when the
+// decision was that none is owed.

@@ -1,22 +1,11 @@
 /**
  * Rill CLI Tests: rill-check command
  *
- * Test Coverage Matrix (maps test cases to specification requirements):
- * AC-S1: Validate file with diagnostics
- * AC-S2: Apply fixes with --fix
- * AC-S3: JSON output format
- * AC-S4: Verbose mode output
- * AC-S5: --version flag
- * AC-S6: --help flag
- * AC-S7: Config override
- * AC-E1: File not found (exit 2)
- * AC-E2: Parse error (exit 3)
- * AC-E3: Parse error + --fix message
- * AC-E4: Unknown flag error
- * AC-E5: Invalid config error
- * AC-B1: Empty file (no diagnostics)
- * AC-B2: Parse-only errors
- * AC-B5: (removed - 10K line perf test unnecessary for draft language)
+ * Coverage: validating a file and reporting diagnostics, applying fixes
+ * with --fix, JSON output format, verbose mode output, --version and
+ * --help flags, config override, file-not-found and parse-error exit
+ * codes, parse error plus --fix messaging, unknown flag and invalid
+ * config errors, and empty-file / parse-only edge cases.
  */
 
 import { describe, expect, it, beforeAll, afterAll, afterEach } from 'vitest';
@@ -49,14 +38,15 @@ describe('rill-check CLI', () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  // Clean up config file after each test to prevent pollution between tests
+  // Clean out every entry in the shared temp dir after each test so leftover
+  // fixture files and config cannot bleed into the next test's assertions.
   afterEach(async () => {
-    const configPath = path.join(tempDir, '.rill-check.json');
-    try {
-      await fs.unlink(configPath);
-    } catch {
-      // Ignore if file doesn't exist
-    }
+    const entries = await fs.readdir(tempDir);
+    await Promise.all(
+      entries.map((entry) =>
+        fs.rm(path.join(tempDir, entry), { recursive: true, force: true })
+      )
+    );
   });
 
   /**
@@ -80,8 +70,7 @@ describe('rill-check CLI', () => {
     const severityMap = resolved?.severityMap ?? {};
     return applySeverityOverlay(
       runRules(parseResult, source, config),
-      severityMap,
-      config.rules
+      severityMap
     );
   }
 
@@ -163,12 +152,12 @@ describe('rill-check CLI', () => {
       });
     });
 
-    it('parses --help flag [AC-S6]', () => {
+    it('parses --help flag', () => {
       expect(parseCheckArgs(['--help'])).toEqual({ mode: 'help' });
       expect(parseCheckArgs(['-h'])).toEqual({ mode: 'help' });
     });
 
-    it('parses --fix flag [AC-S2]', () => {
+    it('parses --fix flag', () => {
       const parsed = parseCheckArgs(['test.rill', '--fix']);
       expect(parsed.mode).toBe('check');
       if (parsed.mode === 'check') {
@@ -176,7 +165,7 @@ describe('rill-check CLI', () => {
       }
     });
 
-    it('parses --verbose flag [AC-S4]', () => {
+    it('parses --verbose flag', () => {
       const parsed = parseCheckArgs(['test.rill', '--verbose']);
       expect(parsed.mode).toBe('check');
       if (parsed.mode === 'check') {
@@ -184,7 +173,7 @@ describe('rill-check CLI', () => {
       }
     });
 
-    it('parses --format json [AC-S3]', () => {
+    it('parses --format json', () => {
       const parsed = parseCheckArgs(['test.rill', '--format', 'json']);
       expect(parsed.mode).toBe('check');
       if (parsed.mode === 'check') {
@@ -192,7 +181,7 @@ describe('rill-check CLI', () => {
       }
     });
 
-    it('throws on unknown flag [AC-E4]', () => {
+    it('throws on unknown flag', () => {
       expect(() => parseCheckArgs(['--unknown'])).toThrow(
         'Unknown option: --unknown'
       );
@@ -234,7 +223,7 @@ describe('rill-check CLI', () => {
       );
     });
 
-    it('formats JSON output [AC-S3]', () => {
+    it('formats JSON output', () => {
       const diagnostics: Diagnostic[] = [
         {
           location: { line: 5, column: 10, offset: 50 },
@@ -275,21 +264,21 @@ describe('rill-check CLI', () => {
   // ============================================================
 
   describe('success cases', () => {
-    it('validates file with no diagnostics [AC-B1]', async () => {
+    it('validates file with no diagnostics', async () => {
       const script = await writeFile('valid.rill', '"hello"');
       const diagnostics = validateFile(script);
 
       expect(diagnostics).toEqual([]);
     });
 
-    it('validates empty file [AC-B1]', async () => {
+    it('validates empty file', async () => {
       const script = await writeFile('empty.rill', '');
       const diagnostics = validateFile(script);
 
       expect(diagnostics).toEqual([]);
     });
 
-    it('outputs JSON format when no diagnostics [AC-S3]', async () => {
+    it('outputs JSON format when no diagnostics', async () => {
       const script = await writeFile('valid-json.rill', '"hello"');
       const diagnostics = validateFile(script);
 
@@ -307,7 +296,7 @@ describe('rill-check CLI', () => {
       });
     });
 
-    it('shows help message [AC-S6]', async () => {
+    it('shows help message', async () => {
       const result = await execCheck(['--help']);
 
       expect(result.exitCode).toBe(0);
@@ -324,7 +313,7 @@ describe('rill-check CLI', () => {
   // ============================================================
 
   describe('error cases', () => {
-    it('exits with code 2 for file not found [AC-E1]', async () => {
+    it('exits with code 2 for file not found', async () => {
       const result = await execCheck(['/nonexistent/file.rill']);
 
       expect(result.exitCode).toBe(2);
@@ -332,7 +321,7 @@ describe('rill-check CLI', () => {
       expect(result.stderr).toContain('[RILL-C001]');
     });
 
-    it('exits with code 2 for directory path [AC-E1]', async () => {
+    it('exits with code 2 for directory path', async () => {
       const result = await execCheck([tempDir]);
 
       expect(result.exitCode).toBe(2);
@@ -340,7 +329,7 @@ describe('rill-check CLI', () => {
       expect(result.stderr).toContain('[RILL-C002]');
     });
 
-    it('exits with code 3 for parse error [AC-E2]', async () => {
+    it('exits with code 3 for parse error', async () => {
       const script = await writeFile('parse-error.rill', '|x| x }');
       const result = await execCheck([script]);
 
@@ -350,7 +339,7 @@ describe('rill-check CLI', () => {
       expect(result.stdout).toContain('error:');
     });
 
-    it('reports parse error with location [AC-B2]', async () => {
+    it('reports parse error with location', async () => {
       const script = await writeFile('parse-location.rill', 'invalid {');
 
       expect(() => {
@@ -371,7 +360,7 @@ describe('rill-check CLI', () => {
       }
     });
 
-    it('reports cannot apply fixes on parse error [AC-E3]', async () => {
+    it('reports cannot apply fixes on parse error', async () => {
       const script = await writeFile('parse-fix.rill', '|x| x }');
 
       expect(() => {
@@ -392,11 +381,11 @@ describe('rill-check CLI', () => {
       expect(result.stdout).toContain('lex-error.rill');
     });
 
-    it('exits with code 1 for unknown flag [AC-E4]', async () => {
+    it('exits with code 1 for unknown flag', async () => {
       expect(() => parseCheckArgs(['--unknown'])).toThrow('Unknown option');
     });
 
-    it('exits with code 1 for invalid config [AC-E5]', async () => {
+    it('exits with code 1 for invalid config', async () => {
       await writeFile('valid.rill', '"hello"');
       await writeFile('.rill-check.json', '{ invalid json }');
 
@@ -420,7 +409,7 @@ describe('rill-check CLI', () => {
   // CONFIG OVERRIDE
   // ============================================================
 
-  describe('config override [AC-S7]', () => {
+  describe('config override', () => {
     it('loads config from working directory', async () => {
       // Write valid empty config
       await writeFile('.rill-check.json', JSON.stringify({ rules: {} }));
@@ -454,7 +443,7 @@ describe('rill-check CLI', () => {
   // FIX APPLICATION
   // ============================================================
 
-  describe('fix application [AC-S2]', () => {
+  describe('fix application', () => {
     it('applies fixes when --fix flag present', async () => {
       // Note: Since no validation rules exist yet, we can't test actual fix application
       // This test verifies the --fix flag is processed without error
@@ -479,7 +468,7 @@ describe('rill-check CLI', () => {
   // VERBOSE MODE
   // ============================================================
 
-  describe('verbose mode [AC-S4]', () => {
+  describe('verbose mode', () => {
     it('includes category in JSON output when verbose', () => {
       // Test the formatDiagnostics function directly with verbose flag
       const diagnostics: Diagnostic[] = [
@@ -527,7 +516,7 @@ describe('rill-check CLI', () => {
       expect(diagnostics).toEqual([]);
     });
 
-    it('outputs JSON when --format json specified [AC-S3]', async () => {
+    it('outputs JSON when --format json specified', async () => {
       const script = await writeFile('format-json.rill', '"hello"');
       const diagnostics = validateFile(script);
 
@@ -545,13 +534,16 @@ describe('rill-check CLI', () => {
   // ============================================================
 
   describe('boundary tests', () => {
-    it('fix idempotency: second run applies zero fixes [AC-B3]', async () => {
-      // Create file with multiple naming violations
+    it('fix idempotency: second run applies zero fixes', async () => {
+      // Captures are never referenced, so THROWAWAY_CAPTURE fires alongside
+      // NAMING_SNAKE_CASE for each, but renaming an unreferenced capture has
+      // no reference left to go stale. This keeps the fixture clear of the
+      // rename-without-reference-update bug tracked as rcrsr/rill#142 (see
+      // the dedicated regression test below), isolating this test to fix
+      // idempotency for the rule that does carry an applicable fix.
       const content = `
 "userName" => $userName
 "itemList" => $itemList
-$userName -> .len
-$itemList -> .len
 `;
       const script = await writeFile('idempotent.rill', content);
 
@@ -568,16 +560,55 @@ $itemList -> .len
         const secondApplied = applyFixesToFile(script);
         expect(secondApplied).toBe(0);
 
+        // THROWAWAY_CAPTURE has no fix payload, so it legitimately survives
+        // both fix passes; idempotency means no diagnostic with an
+        // applicable fix remains, not that diagnostics reach zero.
         const finalDiagnostics = validateFile(script);
-        expect(finalDiagnostics).toEqual([]);
+        expect(finalDiagnostics.every((d) => d.fix === null)).toBe(true);
       }
     });
 
-    it('1000-line validation completes in reasonable time [AC-B4]', async () => {
-      // Generate 1000 lines of valid rill code
+    // Tracked upstream in rcrsr/rill#142: `rill check --fix` renames a
+    // capture declaration to snake_case without renaming its references,
+    // leaving the original name undefined and the script unrunnable. The
+    // NAMING_SNAKE_CASE fix payload spans only the declaration, so the
+    // references are never rewritten. This predates the 0.20.0 upgrade.
+    // The assertions below pin the bug by name: they require the renamed
+    // declaration and the STALE references to coexist. Once rcrsr/rill#142
+    // is fixed upstream, the two `$userName`/`$itemList` reference
+    // assertions FAIL, which is the intended alarm. Replace them then with
+    // `expect(fixedSource).toContain('$user_name -> .len')` and assert that
+    // a second --fix pass reports zero remaining applicable fixes.
+    it('regression rcrsr/rill#142: --fix renames a capture without renaming its references', async () => {
+      const content = `
+"userName" => $userName
+"itemList" => $itemList
+$userName -> .len
+$itemList -> .len
+`;
+      const script = await writeFile('rill-142-regression.rill', content);
+
+      const applied = applyFixesToFile(script);
+      expect(applied).toBeGreaterThan(0);
+
+      const fixedSource = await fs.readFile(script, 'utf-8');
+      // The capture declarations were renamed to snake_case...
+      expect(fixedSource).toContain('$user_name');
+      expect(fixedSource).toContain('$item_list');
+      // ...but the references were left pointing at the old camelCase names,
+      // which are now undefined.
+      expect(fixedSource).toContain('$userName -> .len');
+      expect(fixedSource).toContain('$itemList -> .len');
+    });
+
+    it('1000-line validation completes in reasonable time', async () => {
+      // Generate 1000 lines of valid rill code. Piped (not captured) so no
+      // capture is left unreferenced; a captured-but-unused $line_N would
+      // trip THROWAWAY_CAPTURE and break the zero-diagnostics expectation
+      // below, which is unrelated to what this test measures (throughput).
       const lines: string[] = [];
       for (let i = 0; i < 1000; i++) {
-        lines.push(`"line_${i}" => $line_${i}`);
+        lines.push(`"line_${i}" -> log`);
       }
       const content = lines.join('\n');
       const script = await writeFile('perf-1000.rill', content);
@@ -590,7 +621,7 @@ $itemList -> .len
       expect(duration).toBeLessThan(2000);
     });
 
-    it('all rules enabled by default [AC-B6]', async () => {
+    it('all rules enabled by default', async () => {
       const config = createDefaultConfig();
 
       // Verify every rule registered with the service is enabled by default.
@@ -609,12 +640,20 @@ $itemList -> .len
   // ============================================================
 
   describe('error handling', () => {
-    it('applies fixes for multiple violations [AC-E6]', async () => {
-      // Note: Fix collision handling (EC-5) is tested in tests/check/fixer.test.ts
-      // This test verifies that non-colliding fixes are successfully applied
+    it('applies fixes for multiple violations', async () => {
+      // Note: Fix collision handling is tested in tests/check/fixer.test.ts
+      // This test verifies that non-colliding fixes are successfully applied.
+      // $data1/$data2 are each referenced twice, non-adjacently, so neither
+      // trips THROWAWAY_CAPTURE; only the two dict-key NAMING_SNAKE_CASE
+      // violations should remain for the fix to resolve.
       const content = `
 dict[userName: "test"] => $data1
 dict[itemList: list[1, 2, 3]] => $data2
+"noop" -> log
+$data1 -> log
+$data2 -> log
+$data1 -> log
+$data2 -> log
 `;
       const script = await writeFile('collision.rill', content);
 
@@ -648,7 +687,7 @@ dict[itemList: list[1, 2, 3]] => $data2
   // ============================================================
 
   describe('error contracts', () => {
-    describe('EC-1: parseCheckArgs - unknown flag', () => {
+    describe('parseCheckArgs - unknown flag', () => {
       it('throws error for unknown long flag', () => {
         expect(() => parseCheckArgs(['--unknown'])).toThrow(
           'Unknown option: --unknown'
@@ -672,7 +711,7 @@ dict[itemList: list[1, 2, 3]] => $data2
       });
     });
 
-    describe('EC-2: parseCheckArgs - no-arg now scans (FRICTION-NOTES 2026-05-03)', () => {
+    describe('parseCheckArgs - no-arg now scans (FRICTION-NOTES 2026-05-03)', () => {
       it('returns scan mode when no arguments provided', () => {
         expect(parseCheckArgs([])).toMatchObject({ mode: 'scan' });
       });
@@ -814,7 +853,7 @@ dict[itemList: list[1, 2, 3]] => $data2
       });
     });
 
-    describe('EC-3: loadConfig - invalid JSON', () => {
+    describe('loadConfig - invalid JSON', () => {
       it('throws error for malformed JSON', async () => {
         await writeFile('.rill-check.json', '{ invalid json }');
 
@@ -837,7 +876,7 @@ dict[itemList: list[1, 2, 3]] => $data2
       });
     });
 
-    describe('EC-4: loadConfig - unknown rule', () => {
+    describe('loadConfig - unknown rule', () => {
       it('throws error for unknown rule in rules field', async () => {
         await writeFile(
           '.rill-check.json',
@@ -858,24 +897,6 @@ dict[itemList: list[1, 2, 3]] => $data2
         expect(() => loadConfig(tempDir)).toThrow(
           /unknown rule code: UNKNOWN_RULE/i
         );
-      });
-    });
-
-    describe('EC-5: applyFixes - fix collision (tested via unit tests)', () => {
-      it('reference: collision detection in fixer.test.ts', () => {
-        // EC-5 is tested in tests/check/fixer.test.ts
-        // The applyFixes function skips overlapping fixes with reason
-        // See fixer.test.ts "collision detection [EC-5]" describe block
-        expect(true).toBe(true);
-      });
-    });
-
-    describe('EC-6: applyFixes - parse failure (tested via unit tests)', () => {
-      it('reference: parse verification in fixer.test.ts', () => {
-        // EC-6 is tested in tests/check/fixer.test.ts
-        // The applyFixes function throws when fix creates invalid syntax
-        // See fixer.test.ts "parse verification [EC-6]" describe block
-        expect(true).toBe(true);
       });
     });
   });
@@ -1086,9 +1107,13 @@ dict[itemList: list[1, 2, 3]] => $data2
     // code stays 0, and the diagnostic still prints (the change is not silent).
     describe('--fix interaction with --min-severity', () => {
       it('applies a below-threshold fix and still exits 0 under --min-severity error', async () => {
+        // UNNECESSARY_ASSERTION (info, fixable) is applied and removed by
+        // --fix. THROWAWAY_CAPTURE (info, fix: null) on `$dead` has no fix
+        // payload, so it survives the fix pass and is what's left to print
+        // once residual diagnostics are recomputed from the fixed source.
         const script = await writeFile(
           'fix-below-threshold.rill',
-          '42:number\n'
+          '42:number\n"foo" => $dead\n"bar" -> log\n'
         );
 
         const result = await execCheck([
@@ -1098,14 +1123,63 @@ dict[itemList: list[1, 2, 3]] => $data2
           script,
         ]);
 
-        // Info-level diagnostic is below the error threshold, so exit is 0.
+        // Info-level diagnostics are below the error threshold, so exit is 0.
         expect(result.exitCode).toBe(0);
         // The fix is applied and written despite being below the threshold.
-        expect(fssync.readFileSync(script, 'utf-8')).toBe('42\n');
+        expect(fssync.readFileSync(script, 'utf-8')).not.toContain(':number');
         expect(result.stderr).toContain('Applied 1 fix');
-        // The change is not silent: the diagnostic still prints.
+        // The change is not silent: the residual diagnostic still prints.
         expect(result.stdout).toContain('info:');
-        expect(result.stdout).toContain('UNNECESSARY_ASSERTION');
+        expect(result.stdout).toContain('THROWAWAY_CAPTURE');
+        expect(result.stdout).not.toContain('UNNECESSARY_ASSERTION');
+      });
+    });
+
+    // Regression: after --fix rewrites the file, the exit code and printed
+    // diagnostics must reflect the *fixed* source, not the pre-fix list
+    // captured before applyFixes ran.
+    describe('--fix recomputes residual diagnostics from the fixed source', () => {
+      it('all-fixable + --fix exits 0 and reports "No issues found"', async () => {
+        // UNNECESSARY_ASSERTION (info) has a fix that removes the
+        // redundant `:number` entirely, leaving nothing else to report.
+        const script = await writeFile('fix-all-clean.rill', '1:number\n');
+
+        const result = await execCheck([
+          '--fix',
+          '--min-severity',
+          'info',
+          script,
+        ]);
+
+        expect(fssync.readFileSync(script, 'utf-8')).toBe('1\n');
+        expect(result.stderr).toContain('Applied 1 fix');
+        expect(result.stdout).toContain('No issues found');
+        expect(result.stdout).not.toContain('UNNECESSARY_ASSERTION');
+        expect(result.exitCode).toBe(0);
+      });
+
+      it('mixed fixable + unfixable: --fix exits 1 and reports only the residual unfixable diagnostic', async () => {
+        // UNNECESSARY_ASSERTION (info, fixable) is removed by --fix;
+        // THROWAWAY_CAPTURE (info, fix: null) on `$dead` survives the fix
+        // pass because it has no fix payload to apply.
+        const script = await writeFile(
+          'fix-mixed.rill',
+          '1:number\n"foo" => $dead\n"bar" -> log\n'
+        );
+
+        const result = await execCheck([
+          '--fix',
+          '--min-severity',
+          'info',
+          script,
+        ]);
+
+        const fixedSource = fssync.readFileSync(script, 'utf-8');
+        expect(fixedSource).not.toContain(':number');
+        expect(result.stderr).toContain('Applied 1 fix');
+        expect(result.exitCode).toBe(1);
+        expect(result.stdout).toContain('THROWAWAY_CAPTURE');
+        expect(result.stdout).not.toContain('UNNECESSARY_ASSERTION');
       });
     });
 
@@ -1156,9 +1230,12 @@ dict[itemList: list[1, 2, 3]] => $data2
 
   describe('text output literal format', () => {
     it('renders exactly file:line:col: severity: message (code), single space after each colon, no trailing punctuation', async () => {
+      // $myCamelCase is referenced twice, non-adjacently, so it trips only
+      // NAMING_SNAKE_CASE and not THROWAWAY_CAPTURE, keeping this a
+      // single-diagnostic fixture.
       const script = await writeFile(
         'literal-format.rill',
-        '42 => $myCamelCase\n'
+        '42 => $myCamelCase\n5 -> log\n$myCamelCase -> log\n$myCamelCase -> log\n'
       );
       const result = await execCheck([script]);
       const line = result.stdout.trim().split('\n')[0] ?? '';
@@ -1183,9 +1260,12 @@ dict[itemList: list[1, 2, 3]] => $data2
 
   describe('JSON output aggregate fields', () => {
     it('per-file JSON carries errors[] with location/severity/code/message/context and fix when present', async () => {
+      // $myCamelCase is referenced twice, non-adjacently, so it trips only
+      // NAMING_SNAKE_CASE and not THROWAWAY_CAPTURE, keeping this a
+      // single-diagnostic fixture.
       const script = await writeFile(
         'json-fields.rill',
-        '42 => $myCamelCase\n'
+        '42 => $myCamelCase\n5 -> log\n$myCamelCase -> log\n$myCamelCase -> log\n'
       );
       const result = await execCheck(['--format', 'json', script]);
       const parsed = JSON.parse(result.stdout);
@@ -1320,54 +1400,6 @@ $itemList -> .len
   });
 
   // ============================================================
-  // STUBBED RULE INERTNESS
-  //
-  // The service reserves three rule codes for future static-analysis work.
-  // Their `validate` functions unconditionally return an empty array, so
-  // enabling them (the default state) must never produce a diagnostic.
-  // ============================================================
-
-  describe('stubbed rule inertness', () => {
-    const STUB_CODES = [
-      'CONDITION_TYPE',
-      'FOLD_INTERMEDIATES',
-      'THROWAWAY_CAPTURE',
-    ];
-
-    it('registers exactly the three stubbed rule codes as stub in the service registry', () => {
-      const stubRules = RULES.filter((r) => r.stub === true);
-      expect(stubRules.map((r) => r.code).sort()).toEqual(
-        [...STUB_CODES].sort()
-      );
-    });
-
-    it('emits zero diagnostics for each stub code when the default config leaves it enabled', () => {
-      const config = createDefaultConfig();
-      for (const code of STUB_CODES) {
-        expect(config.rules[code]).toBe('on');
-      }
-
-      // Source chosen to plausibly trigger the pattern each stub code is
-      // reserved for (fold accumulation, a conditional's branch type, and a
-      // capture used exactly once), so a stub becoming live would show up here.
-      const source = `
-list[1, 2, 3] -> fold(0, { $@ + $ })
-$x > 0 ? "positive" ! "negative"
-"hello" => $x
-$x -> .upper => $y
-$y -> .len
-`;
-      const parseResult = parseWithRecovery(source);
-      const diagnostics = runRules(parseResult, source, config);
-      const codes = diagnostics.map((d) => d.code);
-
-      for (const code of STUB_CODES) {
-        expect(codes).not.toContain(code);
-      }
-    });
-  });
-
-  // ============================================================
   // VERBOSE CATEGORY RESOLUTION
   //
   // --verbose must resolve a category for every emitted diagnostic code by
@@ -1472,12 +1504,13 @@ $raw -> log
         'utf-8'
       );
       const runRulesCalls = cliCheckSource.match(/\brunRules\(/g) ?? [];
-      // Exactly one call site: the diagnostics passed to applySeverityOverlay
-      // inside checkFile. A "relocate the old engine behind a new name"
-      // implementation would either add a second call site or, more likely,
-      // dispatch rules itself via a `.validate(` loop instead of calling the
-      // service at all.
-      expect(runRulesCalls).toHaveLength(1);
+      // Exactly two call sites, both inside checkFile: the initial
+      // diagnostics passed to applySeverityOverlay, and the post-fix
+      // recompute that reruns runRules against the fixed source once
+      // --fix has written it. Both still delegate to the service; a
+      // "relocate the old engine behind a new name" implementation would
+      // instead dispatch rules itself via a `.validate(` loop.
+      expect(runRulesCalls).toHaveLength(2);
       expect(cliCheckSource).not.toMatch(/\.validate\(/);
     });
 
@@ -1604,24 +1637,22 @@ $raw -> log
   // PRESERVED-BEHAVIOR PARITY (legacy-parity)
   //
   // Binds corpus parity to a sample of the Preserved-Behavior Inventory:
-  // one fixture per active detection rule, stub rule, and fix payload
-  // across every rule category in the inventory. Each row maps to a
-  // "COVERED" or "PORTED" row of the inventory's write-surface table and
-  // asserts the migrated (service-backed) engine reproduces the
-  // pre-rework behavior as documented in the inventory for that row.
-  // Expectations below were hand-derived by reading the inventory, not
-  // captured from an execution snapshot; this file does not perform a
-  // recorded-output diff.
+  // one fixture per active detection rule and fix payload across every rule
+  // category in the inventory. Each row maps to a "COVERED" or "PORTED" row
+  // of the inventory's write-surface table and asserts the migrated
+  // (service-backed) engine reproduces the pre-rework behavior as
+  // documented in the inventory for that row. Expectations below were
+  // hand-derived by reading the inventory, not captured from an execution
+  // snapshot; this file does not perform a recorded-output diff.
   //
   // Coverage: every code in the service RULES registry is named by a row
   // below, enforced by the 'every registered rule code appears in the
-  // inventory' guard test. Each active rule has a fixture whose source
-  // triggers it; registered-but-inert codes (declared stubs, and the
-  // structurally-unreachable SPACING_CLOSURE) carry a forbidCodes row that
-  // asserts they never fire. SPACING_CLOSURE is inert because a Closure
-  // node's span always begins at the first `|`, so the rule's
-  // whitespace-before-pipe check can never match parsed source, and its
-  // second branch has an empty body.
+  // inventory' guard test. Every rule in the 0.20.0 registry is live; there
+  // are no registered-but-inert codes. `CONDITION_TYPE`, `FOLD_INTERMEDIATES`,
+  // `THROWAWAY_CAPTURE`, and `SPACING_CLOSURE` were inert on 0.19.6 and now
+  // emit diagnostics like any other rule; `SPACING_MEMBER` is a new rule
+  // code introduced in 0.20.0. `forbidCodes` remains available on
+  // `ParityRow` for future use but no row currently relies on it.
   // ============================================================
 
   describe('legacy-parity', () => {
@@ -1630,7 +1661,7 @@ $raw -> log
       readonly source: string;
       /** Codes that must appear in the diagnostics for this source. */
       readonly expectCodes: readonly string[];
-      /** Codes that must never appear (used for stub rules). */
+      /** Codes that must never appear (used for inert rules, if any). */
       readonly forbidCodes?: readonly string[];
     }
 
@@ -1825,43 +1856,55 @@ $raw -> log
       },
     ];
 
-    // Stubbed rules (COVERED as inert): the service registers these codes
-    // but their `validate` unconditionally returns zero diagnostics.
-    const stubRows: ParityRow[] = [
+    // Formerly-inert rules (COVERED as live in 0.20.0): CONDITION_TYPE,
+    // FOLD_INTERMEDIATES, and THROWAWAY_CAPTURE were stub codes on 0.19.6
+    // whose `validate` unconditionally returned zero diagnostics.
+    // SPACING_CLOSURE was structurally unreachable for the same reason. All
+    // four now emit diagnostics under 0.20.0's rules engine.
+    const formerlyInertRows: ParityRow[] = [
       {
-        description: 'FOLD_INTERMEDIATES stub emits no diagnostics',
-        source: 'list[1, 2, 3] -> fold(0, { $@ + $ })\n',
-        expectCodes: [],
-        forbidCodes: ['FOLD_INTERMEDIATES'],
+        description: 'FOLD_INTERMEDIATES flags acc(...) -> .tail',
+        source: 'list[1, 2, 3] -> acc(0, { $@ + $ }) -> .tail\n',
+        expectCodes: ['FOLD_INTERMEDIATES'],
       },
       {
-        description: 'CONDITION_TYPE stub emits no diagnostics',
+        // The ternary operator binds tighter than `>` here, so the
+        // condition unwraps to the bare NumberLiteral `0`, not the whole
+        // `$x > 0` comparison; that non-bool primary is what CONDITION_TYPE
+        // flags.
+        description: 'CONDITION_TYPE flags a non-bool literal condition',
         source: '$x > 0 ? "positive" ! "negative"\n',
-        expectCodes: [],
-        forbidCodes: ['CONDITION_TYPE'],
+        expectCodes: ['CONDITION_TYPE'],
       },
       {
-        description: 'THROWAWAY_CAPTURE stub emits no diagnostics',
-        source: '"hello" => $x\n$x -> .upper => $y\n$y -> .len\n',
-        expectCodes: [],
-        forbidCodes: ['THROWAWAY_CAPTURE'],
+        description:
+          'THROWAWAY_CAPTURE flags a capture that is never referenced',
+        source: '"hello" => $x\n5 -> log\n',
+        expectCodes: ['THROWAWAY_CAPTURE'],
       },
       {
-        // SPACING_CLOSURE is registered but structurally unreachable: a
-        // Closure node's span starts at its first `|`, so the rule's
-        // whitespace-before-pipe check never matches, and its second branch
-        // has an empty body. This spaced closure would be its trigger if the
-        // rule could fire; it asserts the code stays inert.
-        description: 'SPACING_CLOSURE is inert on a spaced closure',
+        // A Closure node's span starts at its first `|`, so the rule's
+        // whitespace-before-pipe check never matches on the closure itself;
+        // it fires instead on the surrounding call's whitespace-before-pipe
+        // gap (the space between `seq(` and `|x|`).
+        description: 'SPACING_CLOSURE flags a spaced closure argument',
         source: 'list[1] -> seq( |x| { $x })\n',
-        expectCodes: [],
-        forbidCodes: ['SPACING_CLOSURE'],
+        expectCodes: ['SPACING_CLOSURE'],
+      },
+      {
+        description: 'formatting: SPACING_MEMBER flags a spaced member dot',
+        source: 'dict[a: 1] => $obj\n$obj. a\n',
+        expectCodes: ['SPACING_MEMBER'],
       },
     ];
 
-    const allRows = [...activeRows, ...stubRows];
+    const allRows = [...activeRows, ...formerlyInertRows];
 
     for (const row of allRows) {
+      // Table-driven: the title is a field of the row, so the rule cannot
+      // resolve it statically and reports a false positive. Suppressed here
+      // rather than in .oxlintrc.json so the rule stays on everywhere else.
+      // oxlint-disable-next-line vitest/valid-title
       it(row.description, async () => {
         const name = `parity-${row.description.replace(/[^a-z0-9]+/gi, '-')}.rill`;
         const script = await writeFile(name, row.source);
@@ -1950,5 +1993,110 @@ $raw -> log
         .sort();
       expect(uncovered).toEqual([]);
     });
+  });
+
+  // ============================================================
+  // --types --format json: LARGE tsc OUTPUT
+  //
+  // Regression for the exit -> close switch in runTypeCheck: `exit` can
+  // fire before a piped stdout stream has finished draining, which risks
+  // resolving (and the process moving on) before all of tsc's diagnostics
+  // have reached our stderr. `close` fires only once stdio is fully
+  // flushed, so a large diagnostic volume must arrive complete.
+  // ============================================================
+
+  describe('--types --format json with a large tsc diagnostic volume', () => {
+    it('captures every tsc diagnostic and keeps the lint JSON envelope parseable', async () => {
+      const typesDir = await fs.mkdtemp(
+        path.join(os.tmpdir(), 'rill-check-types-large-')
+      );
+      try {
+        // Reuse this repository's installed TypeScript compiler by linking
+        // its whole node_modules/ into the isolated project directory, so
+        // runTypeCheck's own resolution (cwd/node_modules/.bin/tsc) finds
+        // the binary and the binary in turn resolves its own package (the
+        // tsc launcher requires typescript/bin/tsc via a path relative to
+        // node_modules/, not to __dirname, so a bare .bin/tsc symlink is
+        // not enough).
+        await fs.symlink(
+          path.join(process.cwd(), 'node_modules'),
+          path.join(typesDir, 'node_modules')
+        );
+
+        await fs.writeFile(
+          path.join(typesDir, 'tsconfig.json'),
+          JSON.stringify({
+            compilerOptions: {
+              target: 'ES2020',
+              module: 'ES2020',
+              moduleResolution: 'bundler',
+              strict: true,
+              noEmit: true,
+            },
+            include: ['errors.ts'],
+          }),
+          'utf-8'
+        );
+
+        // One TS2322 diagnostic per line, produced in a single file so
+        // the compiler stays fast while the diagnostic count stays large.
+        const errorCount = 150;
+        const lines: string[] = [];
+        for (let i = 0; i < errorCount; i++) {
+          lines.push(`const value${i}: number = "not a number ${i}";`);
+        }
+        await fs.writeFile(
+          path.join(typesDir, 'errors.ts'),
+          lines.join('\n') + '\n',
+          'utf-8'
+        );
+
+        const result = await new Promise<{
+          exitCode: number;
+          stdout: string;
+          stderr: string;
+        }>((resolve) => {
+          const cliPath = path.join(process.cwd(), 'dist', 'cli.js');
+          const env = { ...process.env };
+          delete env['VITEST'];
+          delete env['VITEST_WORKER_ID'];
+          delete env['NODE_ENV'];
+          const proc = spawn(
+            'node',
+            [cliPath, 'check', '--types', '--format', 'json'],
+            { cwd: typesDir, env }
+          );
+          let stdout = '';
+          let stderr = '';
+          proc.stdout.on('data', (d) => {
+            stdout += d.toString();
+          });
+          proc.stderr.on('data', (d) => {
+            stderr += d.toString();
+          });
+          proc.on('close', (code) => {
+            resolve({ exitCode: code ?? 1, stdout, stderr });
+          });
+        });
+
+        // The lint pass's own JSON envelope (no *.rill files here) must
+        // remain a single, complete, parseable document even while a large
+        // volume of tsc output is concurrently piped to stderr.
+        const parsed = JSON.parse(result.stdout) as {
+          files: unknown[];
+          summary: { files: number };
+        };
+        expect(parsed.files).toEqual([]);
+        expect(parsed.summary.files).toBe(0);
+
+        // Every one of the errorCount diagnostics must have reached
+        // stderr; a truncated pipe would report fewer than errorCount.
+        const matches = result.stderr.match(/error TS2322/g) ?? [];
+        expect(matches).toHaveLength(errorCount);
+        expect(result.exitCode).not.toBe(0);
+      } finally {
+        await fs.rm(typesDir, { recursive: true, force: true });
+      }
+    }, 30000);
   });
 });

@@ -15,25 +15,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import {
-  assertBootstrapped,
-  BootstrapMissingError,
-  resolvePrefix,
-} from './prefix.js';
+import { resolvePrefix } from './prefix.js';
 import {
   deriveMount,
   extractPackageName,
   isLocalPath,
   looksLikeLocalFilePath,
+  readLocalPackageName,
 } from './mount-derive.js';
 import {
   readConfigSnapshot,
   applyMountEdit,
   hasMount,
+  assertBootstrappedOrReport,
+  reportNpmNotFound,
+  readInstalledPackageVersion,
   ConfigNotFoundError,
+  ConfigParseError,
   ConfigWriteError,
 } from './config-edit.js';
-import { npmInstall, npmView, NpmNotFoundError } from './npm-runner.js';
+import { npmInstall, npmView } from './npm-runner.js';
 import { resolveTargetPackageDir } from './bundle-resolve.js';
 import {
   findBundleRoot,
@@ -70,7 +71,7 @@ Options:
   --as <mount>         Override the mount path (default: derived from package name).
                        Required when <pkg-or-path> is a single-file source.
   --pin                Record exact installed version (no caret). Registry installs only.
-  --exact              Deprecated alias for --pin (will be removed in 0.20).
+  --exact              Deprecated alias for --pin (will be removed in 0.21).
   --range <semver>     Record a custom semver range verbatim. Registry installs only.
   --dry-run            Print what would be done without writing config or running npm.
   --for <mount>        Target package mount to install an extension into (bundle mode).
@@ -115,6 +116,10 @@ async function installLocalFile(opts: {
       process.stderr.write(
         "  Run 'rill init' first to initialize the project\n"
       );
+      return 1;
+    }
+    if (err instanceof ConfigParseError) {
+      process.stderr.write(`✗ ${err.message}\n`);
       return 1;
     }
     throw err;
@@ -223,21 +228,6 @@ function extractRillRole(
 }
 
 // ============================================================
-// BUNDLE TARGET RESOLUTION
-// ============================================================
-
-/**
- * Writes the verbatim bootstrap-missing error copy to stderr.
- *
- * Shared by the package-mode and bundle-mode (harness/extension) bootstrap
- * gates so the message stays byte-identical across all three call sites.
- */
-function writeBootstrapMissingError(): void {
-  process.stderr.write('✗ .rill/npm/ not found\n');
-  process.stderr.write("  Run 'rill init' first to initialize the project\n");
-}
-
-// ============================================================
 // RUN
 // ============================================================
 
@@ -288,7 +278,7 @@ export async function run(argv: string[]): Promise<number> {
   // P2-1: --exact is deprecated; warn once before continuing.
   if (values['exact'] === true) {
     process.stderr.write(
-      'warning: --exact is deprecated, use --pin (will be removed in 0.20)\n'
+      'warning: --exact is deprecated, use --pin (will be removed in 0.21)\n'
     );
   }
 
@@ -297,7 +287,7 @@ export async function run(argv: string[]): Promise<number> {
     typeof values['range'] === 'string' ? values['range'] : undefined;
   const dryRun = values['dry-run'] === true;
 
-  // EC-12: --pin/--exact and --range are mutually exclusive
+  // --pin/--exact and --range are mutually exclusive
   if (pin && rangeArg !== undefined) {
     process.stderr.write('--pin/--exact and --range are mutually exclusive\n');
     return 1;
@@ -332,6 +322,12 @@ export async function run(argv: string[]): Promise<number> {
       );
       return 1;
     }
+    if (forMount !== undefined || roleFlag !== undefined) {
+      process.stderr.write(
+        '✗ --for/--role are not valid for single-file sources\n'
+      );
+      return 1;
+    }
     const prefix = resolvePrefix(projectDir);
     return await installLocalFile({
       specifier,
@@ -353,20 +349,12 @@ export async function run(argv: string[]): Promise<number> {
   let targetPackageDir = projectDir;
 
   // ---- Step 1: assertBootstrapped (package mode) ----
-  // EC-7: .rill/npm/ missing -> UXT-EXT-5 verbatim
+  // .rill/npm/ missing -> the bootstrap-missing message, verbatim, exit 1
   // In bundle mode, the bootstrap gate is checked per-role below (Step 4c),
   // against the bundle root for harnesses or the target package for
   // extensions.
   if (bundleRoot === null) {
-    try {
-      assertBootstrapped(projectDir);
-    } catch (err) {
-      if (err instanceof BootstrapMissingError) {
-        writeBootstrapMissingError();
-        return 1;
-      }
-      throw err;
-    }
+    if (!assertBootstrappedOrReport(projectDir)) return 1;
   }
 
   // ---- Step 2: Compute mount ----
@@ -379,7 +367,22 @@ export async function run(argv: string[]): Promise<number> {
   let kind: 'add' | 'overwrite' = 'add';
 
   if (bundleRoot === null) {
-    snapshot = await readConfigSnapshot(projectDir);
+    try {
+      snapshot = await readConfigSnapshot(projectDir);
+    } catch (err) {
+      if (err instanceof ConfigNotFoundError) {
+        process.stderr.write('✗ rill-config.json not found\n');
+        process.stderr.write(
+          "  Run 'rill init' first to initialize the project\n"
+        );
+        return 1;
+      }
+      if (err instanceof ConfigParseError) {
+        process.stderr.write(`✗ ${err.message}\n`);
+        return 1;
+      }
+      throw err;
+    }
     const mountExists = hasMount(snapshot, mount);
     if (mountExists && asOverride === undefined) {
       process.stderr.write(`✗ Mount path '${mount}' already exists\n`);
@@ -414,10 +417,21 @@ export async function run(argv: string[]): Promise<number> {
     }
     process.stdout.write(`[dry-run] mount: ${mount}\n`);
     process.stdout.write(`[dry-run] specifier: ${specifier}\n`);
+    if (forMount !== undefined) {
+      process.stdout.write(`[dry-run] for: ${forMount}\n`);
+    }
+    if (roleFlag !== undefined) {
+      process.stdout.write(`[dry-run] role: ${roleFlag}\n`);
+    }
     process.stdout.write(
       `[dry-run] would write to rill-config.json: extensions.mounts.${mount} = "${plannedValue}"\n`
     );
     process.stdout.write(`[dry-run] would run: ${plannedNpm}\n`);
+    if (forMount !== undefined || roleFlag !== undefined) {
+      process.stdout.write(
+        'ℹ role is finalized at install time from the package manifest (--role overrides it)\n'
+      );
+    }
     return 0;
   }
 
@@ -428,12 +442,8 @@ export async function run(argv: string[]): Promise<number> {
   try {
     declaredRole = await probePackageRole(specifier, local, projectDir);
   } catch (err) {
-    if (err instanceof NpmNotFoundError) {
-      // npm absent means we cannot probe and cannot install; surface it before spawning.
-      process.stderr.write('npm not found on PATH; install Node.js with npm\n');
-      return 1;
-    }
-    throw err;
+    // npm absent means we cannot probe and cannot install; surface it before spawning.
+    return reportNpmNotFound(err);
   }
   if (declaredRole === 'not-a-rill-package') {
     process.stderr.write(
@@ -462,15 +472,7 @@ export async function run(argv: string[]): Promise<number> {
   if (bundleRoot !== null) {
     if (effectiveRole === 'harness') {
       effectivePrefix = path.join(bundleRoot, '.rill', 'npm');
-      try {
-        assertBootstrapped(bundleRoot);
-      } catch (err) {
-        if (err instanceof BootstrapMissingError) {
-          writeBootstrapMissingError();
-          return 1;
-        }
-        throw err;
-      }
+      if (!assertBootstrappedOrReport(bundleRoot)) return 1;
     } else {
       const resolved = await resolveTargetPackageDir({
         bundleRoot,
@@ -482,25 +484,17 @@ export async function run(argv: string[]): Promise<number> {
       }
       targetPackageDir = resolved.dir;
       effectivePrefix = resolvePrefix(targetPackageDir);
-      try {
-        assertBootstrapped(targetPackageDir);
-      } catch (err) {
-        if (err instanceof BootstrapMissingError) {
-          writeBootstrapMissingError();
-          return 1;
-        }
-        throw err;
-      }
+      if (!assertBootstrappedOrReport(targetPackageDir)) return 1;
     }
   }
 
   if (local) {
-    // UXT-EXT-3 first line
+    // Local path, first of two lines.
     process.stdout.write(`ℹ Installing ${mount} from ${specifier}...\n`);
   }
   // Registry path: no "ℹ Installing" line here.
   // npm streams its own progress via stdio: 'inherit'.
-  // UXT-EXT-2 first line is emitted after the version is resolved (step 6).
+  // Its first line is emitted after the version is resolved (step 6).
 
   // ---- Step 5: Spawn npm ----
   let npmSpec: string;
@@ -515,16 +509,12 @@ export async function run(argv: string[]): Promise<number> {
   try {
     npmResult = await npmInstall({ spec: npmSpec, prefix: effectivePrefix });
   } catch (err) {
-    if (err instanceof NpmNotFoundError) {
-      // EC-31
-      process.stderr.write('npm not found on PATH; install Node.js with npm\n');
-      return 1;
-    }
-    throw err;
+    // npm absent from PATH is a user-fixable setup problem, not a crash.
+    return reportNpmNotFound(err);
   }
 
   if (npmResult.exitCode !== 0) {
-    // EC-9: propagate npm exit code; npm already streamed its stderr
+    // propagate npm exit code; npm already streamed its stderr
     return npmResult.exitCode;
   }
 
@@ -533,8 +523,9 @@ export async function run(argv: string[]): Promise<number> {
   let pkgName: string;
 
   if (local) {
-    // For local path, derive package name from the mount (basename of path)
-    pkgName = mount;
+    // For local path, prefer the package's declared name from its own
+    // package.json; fall back to the derived mount when absent.
+    pkgName = readLocalPackageName(specifier, projectDir) ?? mount;
   } else {
     pkgName = extractPackageName(specifier);
 
@@ -544,27 +535,18 @@ export async function run(argv: string[]): Promise<number> {
       pkgName,
       'package.json'
     );
-    try {
-      const pkgJsonText = fs.readFileSync(installedPkgJsonPath, 'utf8');
-      const pkgJson = JSON.parse(pkgJsonText) as { version?: string };
-      installedVersion = pkgJson.version;
-    } catch (err) {
-      // npm install succeeded but the installed package.json is unreadable or invalid.
-      // Refuse to record an unversioned mount when the rest of the workflow assumes
-      // versioned specifiers — surface the read failure instead of silently masking it.
-      const msg = err instanceof Error ? err.message : String(err);
+    // npm install succeeded but the installed package.json may be unreadable,
+    // invalid, or missing a version field. Refuse to record an unversioned
+    // mount when the rest of the workflow assumes versioned specifiers —
+    // surface the failure instead of silently masking it.
+    installedVersion = readInstalledPackageVersion(effectivePrefix, pkgName);
+
+    if (installedVersion === undefined) {
       process.stderr.write(
-        `✗ Failed to read installed package metadata at ${installedPkgJsonPath}: ${msg}\n`
+        `✗ Installed package.json at ${installedPkgJsonPath} is missing, unreadable, or has no version field\n`
       );
       process.stderr.write(
         '  npm install completed but the package may be corrupt. Re-run install or inspect .rill/npm/.\n'
-      );
-      return 1;
-    }
-
-    if (installedVersion === undefined || installedVersion === '') {
-      process.stderr.write(
-        `✗ Installed package.json at ${installedPkgJsonPath} has no version field\n`
       );
       return 1;
     }
@@ -580,30 +562,28 @@ export async function run(argv: string[]): Promise<number> {
     value = `${pkgName}@${rangeArg}`;
   } else if (pin) {
     // --pin / --exact: exact version, no caret
-    value =
-      installedVersion !== undefined
-        ? `${pkgName}@${installedVersion}`
-        : pkgName;
+    // Non-local branch: installedVersion is guaranteed set here (Step 6
+    // returns 1 above when it is undefined), so no fallback is reachable.
+    value = `${pkgName}@${installedVersion}`;
   } else {
     // Default: caret constraint
-    value =
-      installedVersion !== undefined
-        ? `${pkgName}@^${installedVersion}`
-        : pkgName;
+    // Non-local branch: installedVersion is guaranteed set here (see above).
+    value = `${pkgName}@^${installedVersion}`;
   }
 
   // ---- Step 8: Print install confirmation ----
   if (local) {
-    // UXT-EXT-3 second line
+    // Local path, second of two lines.
     process.stdout.write(
       `✓ Installed to .rill/npm/node_modules/${mount} (symlinked)\n`
     );
   } else {
-    // UXT-EXT-2 first line: emitted here, after version is resolved from package.json
-    const versionSuffix =
-      installedVersion !== undefined ? `@${installedVersion}` : '';
+    // Registry path, first of two lines: emitted here, after the version is
+    // resolved from package.json.
+    // Non-local branch: installedVersion is guaranteed set here (see above).
+    const versionSuffix = `@${installedVersion}`;
     process.stdout.write(`ℹ Installing ${pkgName}${versionSuffix}...\n`);
-    // UXT-EXT-2 second line
+    // Registry path, second of two lines.
     process.stdout.write(`✓ Installed to .rill/npm/node_modules/${pkgName}\n`);
   }
 
@@ -650,7 +630,7 @@ export async function run(argv: string[]): Promise<number> {
     });
   } catch (err) {
     if (err instanceof ConfigWriteError) {
-      // EC-11: writeFileSync failed after npm install — out-of-sync state
+      // writeFileSync failed after npm install — out-of-sync state
       process.stderr.write(
         '✗ Failed to write rill-config.json after npm install. Package state and config are out of sync.\n'
       );
@@ -668,7 +648,7 @@ export async function run(argv: string[]): Promise<number> {
     "ℹ Configure the mount in rill-config.json, then run 'rill describe project' or 'rill run' to validate.\n"
   );
 
-  // UXT-EXT-2: registry-only "Ready to use" line (not emitted for local path per UXT-EXT-3)
+  // Registry-only "Ready to use" line; the local path does not emit it.
   if (!local) {
     process.stdout.write(`Ready to use: use:${mount}\n`);
   }
@@ -730,12 +710,20 @@ async function applyBundleInstall(opts: {
 
     if (bundleConfig.harness !== undefined && !replaceFlag) {
       process.stderr.write(
-        `Bundle already has a harness declared: ${bundleConfig.harness}. Run \`rill uninstall ${bundleConfig.harness}\` first, or use \`rill install ${pkgName} --replace\` to swap harnesses.\n`
+        `Bundle already has a harness declared: ${bundleConfig.harness}. Run \`rill uninstall --harness\` first, or use \`rill install ${pkgName} --replace\` to swap harnesses.\n`
       );
       return 1;
     }
 
-    await writeBundleHarness(bundleRoot, pkgName);
+    try {
+      await writeBundleHarness(bundleRoot, pkgName);
+    } catch (err) {
+      if (err instanceof BundleConfigError) {
+        process.stderr.write(`✗ ${err.message}\n`);
+        return 1;
+      }
+      throw err;
+    }
     process.stdout.write(
       `✓ Harness '${pkgName}' recorded in rill-bundle.json\n`
     );
@@ -753,6 +741,10 @@ async function applyBundleInstall(opts: {
       process.stderr.write(
         `✗ rill-config.json not found in target package directory: ${targetPackageDir}\n`
       );
+      return 1;
+    }
+    if (err instanceof ConfigParseError) {
+      process.stderr.write(`✗ ${err.message}\n`);
       return 1;
     }
     throw err;

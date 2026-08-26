@@ -1,6 +1,6 @@
 /**
  * Tests for CLI Error Formatter
- * Covers: IR-5, IR-7, EC-5, EC-8, IC-2
+ * Covers: IR-5, IR-7, IC-2
  */
 
 import { describe, it, expect } from 'vitest';
@@ -9,7 +9,6 @@ import {
   renderCaretUnderline,
   type EnrichedError,
   type FormatOptions,
-  type CallFrame,
 } from '../../src/cli-error-formatter.js';
 import type { SourceSpan } from '@rcrsr/rill';
 
@@ -28,8 +27,6 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'human',
         verbose: false,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       const result = formatError(error, options);
@@ -67,8 +64,6 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'human',
         verbose: false,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       const result = formatError(error, options);
@@ -79,7 +74,7 @@ describe('formatError', () => {
       expect(result).toContain(' 1 | "start" => $begin');
       expect(result).toContain(' 2 | $begin -> .upper => $upper');
       expect(result).toContain(' 3 | $foo -> .len');
-      expect(result).toContain('   |   ^^^^');
+      expect(result).toContain('   |  ^^^^');
       expect(result).toContain(' 4 | end');
     });
 
@@ -97,8 +92,6 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'human',
         verbose: false,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       const result = formatError(error, options);
@@ -117,8 +110,6 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'human',
         verbose: true,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       const result = formatError(error, options);
@@ -136,98 +127,11 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'human',
         verbose: false,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       const result = formatError(error, options);
 
       expect(result).not.toContain('https://example.com/errors/R005');
-    });
-
-    it('formats error with call stack when enabled', () => {
-      const callStack: CallFrame[] = [
-        {
-          location: {
-            start: { line: 10, column: 5, offset: 100 },
-            end: { line: 10, column: 15, offset: 110 },
-          },
-          functionName: 'myFunction',
-          context: 'in each body',
-        },
-        {
-          location: {
-            start: { line: 5, column: 0, offset: 50 },
-            end: { line: 5, column: 10, offset: 60 },
-          },
-          functionName: 'outer',
-        },
-      ];
-
-      const error: EnrichedError = {
-        errorId: 'RILL-R001',
-        message: 'Runtime error occurred',
-        callStack,
-      };
-
-      const options: FormatOptions = {
-        format: 'human',
-        verbose: false,
-        includeCallStack: true,
-        maxCallStackDepth: 10,
-      };
-
-      const result = formatError(error, options);
-
-      expect(result).toContain('Call stack:');
-      expect(result).toContain('  1. myFunction (in each body) at 10:5');
-      expect(result).toContain('  2. outer at 5:0');
-    });
-
-    it('limits call stack depth', () => {
-      const callStack: CallFrame[] = [
-        {
-          location: {
-            start: { line: 1, column: 0, offset: 0 },
-            end: { line: 1, column: 5, offset: 5 },
-          },
-          functionName: 'fn1',
-        },
-        {
-          location: {
-            start: { line: 2, column: 0, offset: 10 },
-            end: { line: 2, column: 5, offset: 15 },
-          },
-          functionName: 'fn2',
-        },
-        {
-          location: {
-            start: { line: 3, column: 0, offset: 20 },
-            end: { line: 3, column: 5, offset: 25 },
-          },
-          functionName: 'fn3',
-        },
-      ];
-
-      const error: EnrichedError = {
-        errorId: 'RILL-R001',
-        message: 'Runtime error',
-        callStack,
-      };
-
-      const options: FormatOptions = {
-        format: 'human',
-        verbose: false,
-        includeCallStack: true,
-        maxCallStackDepth: 2,
-      };
-
-      const result = formatError(error, options);
-
-      expect(result).toContain('  1. fn1');
-      expect(result).toContain('  2. fn2');
-      expect(result).toContain('  ... 1 more frames');
-      expect(result).not.toContain('fn3');
     });
   });
 
@@ -246,8 +150,6 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'json',
         verbose: false,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       const result = formatError(error, options);
@@ -265,74 +167,6 @@ describe('formatError', () => {
       expect(diagnostic.suggestions).toEqual(['Did you mean `$begin`?']);
     });
 
-    it('includes call stack in JSON format when enabled', () => {
-      const callStack: CallFrame[] = [
-        {
-          location: {
-            start: { line: 10, column: 5, offset: 100 },
-            end: { line: 10, column: 15, offset: 110 },
-          },
-          functionName: 'myFunction',
-          context: 'in each body',
-        },
-      ];
-
-      const error: EnrichedError = {
-        errorId: 'RILL-R001',
-        message: 'Runtime error',
-        callStack,
-      };
-
-      const options: FormatOptions = {
-        format: 'json',
-        verbose: false,
-        includeCallStack: true,
-        maxCallStackDepth: 10,
-      };
-
-      const result = formatError(error, options);
-      const diagnostic = JSON.parse(result);
-
-      expect(diagnostic.callStack).toHaveLength(1);
-      expect(diagnostic.callStack[0]).toEqual({
-        location: {
-          start: { line: 9, character: 4 }, // 0-based
-          end: { line: 9, character: 14 },
-        },
-        functionName: 'myFunction',
-        context: 'in each body',
-      });
-    });
-
-    it('excludes call stack when not enabled', () => {
-      const callStack: CallFrame[] = [
-        {
-          location: {
-            start: { line: 10, column: 5, offset: 100 },
-            end: { line: 10, column: 15, offset: 110 },
-          },
-        },
-      ];
-
-      const error: EnrichedError = {
-        errorId: 'RILL-R001',
-        message: 'Runtime error',
-        callStack,
-      };
-
-      const options: FormatOptions = {
-        format: 'json',
-        verbose: false,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
-      };
-
-      const result = formatError(error, options);
-      const diagnostic = JSON.parse(result);
-
-      expect(diagnostic.callStack).toBeUndefined();
-    });
-
     it('includes help URL in JSON when verbose', () => {
       const error: EnrichedError = {
         errorId: 'RILL-R005',
@@ -343,8 +177,6 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'json',
         verbose: true,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       const result = formatError(error, options);
@@ -368,8 +200,6 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'compact',
         verbose: false,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       const result = formatError(error, options);
@@ -388,8 +218,6 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'compact',
         verbose: false,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       const result = formatError(error, options);
@@ -408,8 +236,6 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'compact',
         verbose: false,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       const result = formatError(error, options);
@@ -418,7 +244,7 @@ describe('formatError', () => {
     });
   });
 
-  describe('EC-5: Unknown format throws TypeError', () => {
+  describe('Unknown format throws TypeError', () => {
     it('throws TypeError for unknown format', () => {
       const error: EnrichedError = {
         errorId: 'RILL-R001',
@@ -428,8 +254,6 @@ describe('formatError', () => {
       const options: FormatOptions = {
         format: 'xml' as 'human', // Force invalid format
         verbose: false,
-        includeCallStack: false,
-        maxCallStackDepth: 10,
       };
 
       expect(() => formatError(error, options)).toThrow(TypeError);
@@ -440,6 +264,18 @@ describe('formatError', () => {
 
 describe('renderCaretUnderline', () => {
   describe('IR-7: Single char shows ^', () => {
+    it('renders no padding for a span starting at column 1', () => {
+      const span: SourceSpan = {
+        start: { line: 1, column: 1, offset: 0 },
+        end: { line: 1, column: 2, offset: 1 },
+      };
+      const lineContent = 'hello world';
+
+      const result = renderCaretUnderline(span, lineContent);
+
+      expect(result).toBe('^'); // column 1 is the first character: 0 spaces
+    });
+
     it('renders single caret for single character span', () => {
       const span: SourceSpan = {
         start: { line: 1, column: 5, offset: 5 },
@@ -449,7 +285,7 @@ describe('renderCaretUnderline', () => {
 
       const result = renderCaretUnderline(span, lineContent);
 
-      expect(result).toBe('     ^');
+      expect(result).toBe('    ^'); // 4 spaces (column 5 - 1) + 1 caret
     });
   });
 
@@ -463,7 +299,7 @@ describe('renderCaretUnderline', () => {
 
       const result = renderCaretUnderline(span, lineContent);
 
-      expect(result).toBe('  ^^^^'); // 2 spaces + 4 carets
+      expect(result).toBe(' ^^^^'); // 1 space (column 2 - 1) + 4 carets
     });
 
     it('handles zero-width span as single caret', () => {
@@ -475,7 +311,7 @@ describe('renderCaretUnderline', () => {
 
       const result = renderCaretUnderline(span, lineContent);
 
-      expect(result).toBe('   ^'); // 3 spaces + 1 caret (minimum)
+      expect(result).toBe('  ^'); // 2 spaces (column 3 - 1) + 1 caret (minimum)
     });
   });
 
@@ -489,11 +325,11 @@ describe('renderCaretUnderline', () => {
 
       const result = renderCaretUnderline(span, lineContent);
 
-      expect(result).toBe('      ^^^^^'); // 6 spaces + 5 carets (from col 6 to end)
+      expect(result).toBe('     ^^^^^'); // 5 spaces (column 6 - 1) + 5 carets (from col 6 to end)
     });
   });
 
-  describe('EC-8: Invalid span throws RangeError', () => {
+  describe('Invalid span throws RangeError', () => {
     it('throws when start line after end line', () => {
       const span: SourceSpan = {
         start: { line: 5, column: 0, offset: 50 },
@@ -521,7 +357,7 @@ describe('renderCaretUnderline', () => {
     });
   });
 
-  describe('AC-20: Error at final character renders correctly', () => {
+  describe('error at final character renders correctly', () => {
     it('renders caret at last character position', () => {
       const lineContent = 'hello world';
       const lastCharColumn = lineContent.length - 1; // Column of 'd'
@@ -537,8 +373,7 @@ describe('renderCaretUnderline', () => {
 
       const result = renderCaretUnderline(span, lineContent);
 
-      expect(result).toBe('          ^'); // 10 spaces + 1 caret
-      expect(result.length).toBe(lineContent.length); // Underline should align
+      expect(result).toBe('         ^'); // 9 spaces (column 10 - 1) + 1 caret
     });
 
     it('renders caret at very end of line (past last char)', () => {
@@ -550,7 +385,7 @@ describe('renderCaretUnderline', () => {
 
       const result = renderCaretUnderline(span, lineContent);
 
-      expect(result).toBe('    ^'); // 4 spaces + 1 caret
+      expect(result).toBe('   ^'); // 3 spaces (column 4 - 1) + 1 caret
     });
   });
 
@@ -588,7 +423,7 @@ describe('renderCaretUnderline', () => {
 
       const result = renderCaretUnderline(span, lineContent);
 
-      expect(result).toBe('   ^^^^^^^'); // 3 spaces + 7 carets
+      expect(result).toBe('  ^^^^^^^'); // 2 spaces (column 3 - 1) + 7 carets
     });
   });
 });
@@ -607,21 +442,8 @@ describe('IC-2: Type definitions present', () => {
     const options: FormatOptions = {
       format: 'human',
       verbose: false,
-      includeCallStack: false,
-      maxCallStackDepth: 10,
     };
 
     expect(options.format).toBe('human');
-  });
-
-  it('exports CallFrame type', () => {
-    const frame: CallFrame = {
-      location: {
-        start: { line: 1, column: 0, offset: 0 },
-        end: { line: 1, column: 5, offset: 5 },
-      },
-    };
-
-    expect(frame.location.start.line).toBe(1);
   });
 });

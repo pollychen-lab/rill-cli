@@ -45,7 +45,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     return { mode: 'help' };
   }
 
-  // Check for --explain flag (IC-11)
+  // Check for --explain flag
   const explainIndex = argv.findIndex((arg) => arg === '--explain');
   if (explainIndex !== -1) {
     const errorId = argv[explainIndex + 1];
@@ -55,7 +55,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     return { mode: 'explain', errorId };
   }
 
-  // Parse format, verbose, and max-stack-depth flags (IC-11)
+  // Parse format, verbose, and max-stack-depth flags
   let format: 'human' | 'json' | 'compact' = 'human';
   let verbose = false;
   let maxStackDepth = 10;
@@ -63,7 +63,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const formatIndex = argv.findIndex((arg) => arg === '--format');
   if (formatIndex !== -1) {
     const formatValue = argv[formatIndex + 1];
-    // AC-15: Unknown --format value
+    // Unknown --format value
     if (
       formatValue !== 'human' &&
       formatValue !== 'json' &&
@@ -198,8 +198,11 @@ export async function executeScript(
     // Check if file exists
     try {
       await fs.access(file);
-    } catch {
-      throw new Error(`File not found: ${file}`);
+    } catch (err) {
+      if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
+        throw new Error(`File not found: ${file}`);
+      }
+      throw err;
     }
 
     // Read from file
@@ -270,10 +273,10 @@ Examples:
         return 0;
 
       case 'explain': {
-        // AC-16: Handle --explain command
+        // Handle --explain command
         const documentation = explainError(parsed.errorId);
         if (documentation === null) {
-          // AC-16: Malformed errorId shows usage help
+          // Malformed errorId shows usage help
           console.error(`Invalid error ID: ${parsed.errorId}`);
           console.error(
             'Error ID must be in format RILL-{L|P|R|C}{3-digit}, e.g., RILL-R009'
@@ -305,8 +308,15 @@ Examples:
         } else {
           try {
             source = await fs.readFile(parsed.file, 'utf-8');
-          } catch {
-            throw new Error(`File not found: ${parsed.file}`);
+          } catch (err) {
+            if (
+              err instanceof Error &&
+              'code' in err &&
+              err.code === 'ENOENT'
+            ) {
+              throw new Error(`File not found: ${parsed.file}`);
+            }
+            throw err;
           }
         }
 
@@ -330,13 +340,11 @@ Examples:
     }
   } catch (err) {
     if (err instanceof Error) {
-      // IC-11: Pass source text and format options to formatError
+      // Pass source text and format options to formatError
       console.error(
         formatError(err, source, {
           format: formatOptions?.format ?? 'human',
           verbose: formatOptions?.verbose ?? false,
-          includeCallStack: true,
-          maxCallStackDepth: formatOptions?.maxStackDepth ?? 10,
         })
       );
     } else {
@@ -344,8 +352,6 @@ Examples:
         formatError(new Error(String(err)), source, {
           format: formatOptions?.format ?? 'human',
           verbose: formatOptions?.verbose ?? false,
-          includeCallStack: true,
-          maxCallStackDepth: formatOptions?.maxStackDepth ?? 10,
         })
       );
     }

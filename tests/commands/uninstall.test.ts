@@ -1,7 +1,5 @@
 /**
  * Tests for src/commands/uninstall.ts
- * Covers AC-5, AC-B9, AC-P4
- * Phase 3.5 additions: EC-13, EC-15, EC-16.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -141,10 +139,10 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // AC-5: mount installed, uninstall removes mount + package dir
+  // Mount installed: uninstall removes mount + package dir
   // ============================================================
 
-  describe('AC-5: uninstall removes mount from config and package directory', () => {
+  describe('uninstall removes mount from config and package directory', () => {
     it('removes mount from rill-config.json and exits 0', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -185,7 +183,7 @@ describe('uninstall', () => {
       expect(config.extensions.mounts).not.toHaveProperty('datetime');
     });
 
-    it('emits UXT-EXT-7 messages on stdout', async () => {
+    it('emits removing, updated, uninstalled, and verified messages on stdout', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
       });
@@ -209,26 +207,26 @@ describe('uninstall', () => {
       }
 
       const out = cap.stdout.join('');
-      // UXT-EXT-7 line 1
+      // removing-mount line
       expect(out).toContain(
         "ℹ Removing mount 'datetime' (@rcrsr/rill-ext-datetime@^0.19.0)"
       );
-      // UXT-EXT-7 line 2
+      // config-updated line
       expect(out).toContain('✓ Updated rill-config.json');
-      // UXT-EXT-7 line 3
+      // uninstalled line
       expect(out).toContain(
         '✓ Uninstalled from .rill/npm/node_modules/@rcrsr/rill-ext-datetime'
       );
-      // UXT-EXT-7 line 4
+      // config-verified line
       expect(out).toContain('✓ Verified config loads cleanly');
     });
   });
 
   // ============================================================
-  // AC-B9: mount exists, package directory absent — success
+  // Mount exists, package directory absent — success
   // ============================================================
 
-  describe('AC-B9: mount exists but package directory absent', () => {
+  describe('mount exists but package directory absent', () => {
     it('removes mount from config and exits 0 when package directory is missing', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -257,10 +255,10 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // AC-P4: timing < 5s
+  // Timing budget: uninstall completes quickly
   // ============================================================
 
-  describe('AC-P4: timing < 5s', () => {
+  describe('completes within timing budget', () => {
     it('completes uninstall in under 5000ms', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -281,11 +279,11 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // EC-13: .rill/npm/ missing
+  // .rill/npm/ missing
   // ============================================================
 
-  describe('EC-13: .rill/npm/ missing emits UXT-EXT-5 and exits 1', () => {
-    it('writes UXT-EXT-5 verbatim to stderr and exits 1', async () => {
+  describe('.rill/npm/ missing emits not-found error and exits 1', () => {
+    it('writes the not-found error verbatim to stderr and exits 1', async () => {
       // Only rill-config.json; no .rill/npm/ directory
       fs.writeFileSync(
         path.join(tmpDir, 'rill-config.json'),
@@ -317,10 +315,10 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // EC-15: npm uninstall non-zero exit
+  // npm uninstall non-zero exit
   // ============================================================
 
-  describe('EC-15: npm uninstall non-zero exit propagates exit code', () => {
+  describe('npm uninstall non-zero exit propagates exit code', () => {
     it('returns npm exit code when npm uninstall fails', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -384,10 +382,10 @@ describe('uninstall', () => {
   });
 
   // ============================================================
-  // EC-16: loadProject validation fails after uninstall
+  // loadProject validation fails after uninstall
   // ============================================================
 
-  describe('EC-16: loadProject validation fails after uninstall', () => {
+  describe('loadProject validation fails after uninstall', () => {
     it('exits 1; emits validation error; mount removal stays (config NOT rolled back)', async () => {
       bootstrapProject(tmpDir, {
         datetime: '@rcrsr/rill-ext-datetime@^0.19.0',
@@ -586,6 +584,113 @@ describe('uninstall', () => {
           false
         );
       });
+    });
+  });
+
+  // ============================================================
+  // W-1 / #62: local-dir package name round-trip
+  // ============================================================
+
+  describe('local-dir mount uninstall derives the npm package name from package.json', () => {
+    it('uninstalls by the declared package.json name, not the mount name', async () => {
+      const localExtDir = path.join(tmpDir, 'my-ext');
+      fs.mkdirSync(localExtDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(localExtDir, 'package.json'),
+        JSON.stringify({ name: 'actual-pkg-name', version: '1.0.0' }),
+        'utf8'
+      );
+
+      bootstrapProject(tmpDir, { myext: './my-ext' });
+      const prefix = path.join(tmpDir, '.rill', 'npm');
+      writeInstalledPkg(prefix, 'actual-pkg-name', '1.0.0');
+
+      mocks.spawn.mockImplementation(makeSpawnMock(0));
+
+      const { run } = await import('../../src/commands/uninstall.js');
+      const cap = captureOutput();
+      let exitCode: number;
+      try {
+        exitCode = await run(['myext']);
+      } finally {
+        cap.restore();
+      }
+
+      expect(exitCode).toBe(0);
+
+      const uninstallCall = mocks.spawn.mock.calls.find(
+        (call) => (call[1] as string[])[0] === 'uninstall'
+      );
+      expect(uninstallCall).toBeDefined();
+      expect(uninstallCall?.[1]).toEqual([
+        'uninstall',
+        'actual-pkg-name',
+        '--prefix',
+        prefix,
+      ]);
+    });
+  });
+
+  // ============================================================
+  // W-1 / #65h: install's harness-conflict hint points at `rill uninstall --harness`
+  // ============================================================
+
+  describe('install harness-conflict hint round-trips through `rill uninstall --harness`', () => {
+    it('the hint names the --harness flag, and running it removes the declared harness', async () => {
+      const existingHarness = 'existing-harness-pkg-u2';
+      bootstrapBundle(tmpDir, {
+        harness: existingHarness,
+        packages: [{ mount: 'app', project: 'packages/app' }],
+      });
+      const bundlePrefix = path.join(tmpDir, '.rill', 'npm');
+      writeInstalledPkg(bundlePrefix, existingHarness, '1.0.0');
+
+      mocks.spawn.mockImplementation((_cmd: string, args: string[]) => {
+        const stdout = new EventEmitter();
+        const child = Object.assign(new EventEmitter(), { stdout });
+        process.nextTick(() => {
+          if (args[0] === 'view') {
+            stdout.emit(
+              'data',
+              Buffer.from(JSON.stringify({ role: 'harness' }))
+            );
+          } else {
+            writeInstalledPkg(bundlePrefix, 'new-harness-pkg-u2', '1.0.0');
+          }
+          child.emit('close', 0);
+        });
+        return child;
+      });
+
+      const { run: installRun } = await import('../../src/commands/install.js');
+      const installCap = captureOutput();
+      let installExitCode: number;
+      try {
+        installExitCode = await installRun(['new-harness-pkg-u2']);
+      } finally {
+        installCap.restore();
+      }
+
+      expect(installExitCode).toBe(1);
+      expect(installCap.stderr.join('')).toContain('rill uninstall --harness');
+
+      mocks.spawn.mockImplementation(makeSpawnMock(0));
+
+      const { run: uninstallRun } =
+        await import('../../src/commands/uninstall.js');
+      const uninstallCap = captureOutput();
+      let uninstallExitCode: number;
+      try {
+        uninstallExitCode = await uninstallRun(['--harness']);
+      } finally {
+        uninstallCap.restore();
+      }
+
+      expect(uninstallExitCode).toBe(0);
+      const bundleConfig = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, 'rill-bundle.json'), 'utf8')
+      ) as { harness?: string };
+      expect(bundleConfig).not.toHaveProperty('harness');
     });
   });
 });

@@ -442,7 +442,7 @@ async function runTypeCheck(format: 'text' | 'json' = 'text'): Promise<number> {
     if (format === 'json' && child.stdout) {
       child.stdout.pipe(process.stderr);
     }
-    child.on('exit', (code) => resolveExit(code ?? 1));
+    child.on('close', (code) => resolveExit(code ?? 1));
     child.on('error', (err) => {
       process.stderr.write(`error: failed to spawn tsc: ${err.message}\n`);
       resolveExit(1);
@@ -516,15 +516,6 @@ async function checkFile(
 ): Promise<number> {
   let source: string;
   try {
-    if (!fs.existsSync(file)) {
-      console.error(`Error [RILL-C001]: File not found: ${file}`);
-      return 2;
-    }
-    const stats = fs.statSync(file);
-    if (stats.isDirectory()) {
-      console.error(`Error [RILL-C002]: Path is a directory: ${file}`);
-      return 2;
-    }
     source = fs.readFileSync(file, 'utf-8');
   } catch (err) {
     if (
@@ -583,10 +574,9 @@ async function checkFile(
     return 3;
   }
 
-  const diagnostics = applySeverityOverlay(
+  let diagnostics = applySeverityOverlay(
     runRules(parseResult, source, options.config),
-    options.severityMap,
-    options.config.rules
+    options.severityMap
   );
 
   if (options.fix && diagnostics.length > 0) {
@@ -605,6 +595,20 @@ async function checkFile(
       if (result.skipped > 0) {
         console.error(
           `Skipped ${result.skipped} fix${result.skipped === 1 ? '' : 'es'}`
+        );
+      }
+    }
+
+    if (result.applied > 0) {
+      // Recompute residual diagnostics from the fixed source so a clean
+      // fix reports "No issues found" instead of the stale pre-fix list.
+      // If the modified source fails to parse, keep the pre-fix
+      // diagnostics rather than reporting a parse error for a fix pass.
+      const reparseResult = parseWithRecovery(result.modified);
+      if (reparseResult.errors.length === 0) {
+        diagnostics = applySeverityOverlay(
+          runRules(reparseResult, result.modified, options.config),
+          options.severityMap
         );
       }
     }

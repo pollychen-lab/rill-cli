@@ -1,6 +1,6 @@
 /**
  * Tests for src/commands/install.ts — local-path installs.
- * Covers AC-4 (local symlink + verbatim relative path, UXT-EXT-3 messages).
+ * Covers local symlink + verbatim relative path and the install-success messages.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -55,7 +55,7 @@ function makeLocalExt(parentDir: string, name: string): string {
 }
 
 // ============================================================
-// TESTS: AC-4 — local-path install
+// TESTS: local-path install
 // ============================================================
 
 describe('install (local path)', () => {
@@ -75,7 +75,7 @@ describe('install (local path)', () => {
     vi.resetAllMocks();
   });
 
-  describe('AC-4: local extension symlink + verbatim relative path', () => {
+  describe('local extension symlink + verbatim relative path', () => {
     it('records verbatim relative path in mounts and exits 0', async () => {
       bootstrapProject(tmpDir);
       makeLocalExt(tmpDir, 'local-ext');
@@ -122,7 +122,7 @@ describe('install (local path)', () => {
       expect(config.extensions.mounts['local-ext']).toBe('./local-ext');
     });
 
-    it('emits UXT-EXT-3 messages on stdout', async () => {
+    it('emits the install-progress and success messages on stdout', async () => {
       bootstrapProject(tmpDir);
       makeLocalExt(tmpDir, 'local-ext');
 
@@ -156,13 +156,13 @@ describe('install (local path)', () => {
       }
 
       const out = cap.stdout.join('');
-      // UXT-EXT-3: first line: "ℹ Installing <mount> from <specifier>..."
+      // first line: "ℹ Installing <mount> from <specifier>..."
       expect(out).toContain('ℹ Installing local-ext from ./local-ext');
-      // UXT-EXT-3: second line: "✓ Installed to .rill/npm/node_modules/<mount> (symlinked)"
+      // second line: "✓ Installed to .rill/npm/node_modules/<mount> (symlinked)"
       expect(out).toContain(
         '✓ Installed to .rill/npm/node_modules/local-ext (symlinked)'
       );
-      // UXT-EXT-3: success mount line
+      // success mount line
       expect(out).toContain("✓ Mounted as 'local-ext' in rill-config.json");
     });
   });

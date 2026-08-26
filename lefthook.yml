@@ -3,24 +3,27 @@
 #
 # Skip with `LEFTHOOK=0 git <command>` or `git <command> --no-verify`.
 
+# Format before lint. The reverse order lets the formatter undo a lint fix,
+# so the commit lands with the lint fix reverted and nothing reports it.
+# See @rcrsr/rill-dev/REPO-STANDARDS.md STD-HOOK-2.
 pre-commit:
   piped: true
   commands:
-    oxlint:
-      priority: 1
-      glob: '*.{ts,tsx}'
-      run: pnpm exec oxlint --config .oxlintrc.json --fix {staged_files}
-      stage_fixed: true
     oxfmt:
-      priority: 2
+      priority: 1
       glob: '*.{ts,tsx,js,mjs,cjs,json,yaml,yml}'
       run: pnpm exec oxfmt {staged_files}
+      stage_fixed: true
+    oxlint:
+      priority: 2
+      glob: '*.{ts,tsx}'
+      run: pnpm exec oxlint --config .oxlintrc.json --fix {staged_files}
       stage_fixed: true
 
 pre-push:
   parallel: true
   commands:
     typecheck:
-      run: pnpm run typecheck
+      run: pnpm run check:types
     test:
       run: pnpm run test

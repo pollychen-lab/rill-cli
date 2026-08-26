@@ -78,8 +78,6 @@ function formatRillErrorOutput(
   const formatOpts = {
     format: opts.format,
     verbose: opts.verbose,
-    includeCallStack: true,
-    maxCallStackDepth: opts.maxStackDepth,
     trace: opts.trace,
     showRecovered: opts.showRecovered,
     atomOnly: opts.atomOnly,
@@ -136,8 +134,6 @@ export function formatHandlerError(
         trace: opts.trace,
         showRecovered: opts.showRecovered,
         atomOnly: opts.atomOnly,
-        maxCallStackDepth: opts.maxStackDepth,
-        includeCallStack: true,
       },
       source,
       scriptPath
@@ -306,7 +302,11 @@ function mapResultToRunResult(
     if (tuple.entries.length === 2) {
       const code = tuple.entries[0];
       const message = tuple.entries[1];
-      if (typeof code === 'number' && typeof message === 'string') {
+      if (
+        typeof code === 'number' &&
+        (code === 0 || code === 1) &&
+        typeof message === 'string'
+      ) {
         return {
           exitCode: code,
           output: message.length > 0 ? message : undefined,
@@ -363,7 +363,7 @@ export async function runScript(
   }
 
   const modulesConfig = config.modules ?? {};
-  const configDir = dirname(resolve(opts.config));
+  const configDir = dirname(opts.resolvedConfigPath ?? resolve(opts.config));
   const customModuleResolver = buildModuleResolver(modulesConfig, configDir);
 
   const runtimeOptions: RuntimeOptions = {
@@ -386,10 +386,6 @@ export async function runScript(
   };
 
   const ctx = createRuntimeContext(runtimeOptions);
-
-  if (opts.scriptArgs.length > 0) {
-    ctx.pipeValue = opts.scriptArgs.join(' ');
-  }
 
   const formatErr = (err: RillError): string =>
     formatRillErrorOutput(err, source, opts.scriptPath!, opts);

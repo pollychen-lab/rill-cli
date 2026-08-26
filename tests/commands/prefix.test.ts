@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import {
   resolvePrefix,
   assertBootstrapped,
@@ -18,7 +17,7 @@ import {
 // ============================================================
 
 function makeTmpDir(): string {
-  return path.join(os.tmpdir(), crypto.randomUUID());
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'rill-'));
 }
 
 // ============================================================
@@ -56,7 +55,6 @@ describe('assertBootstrapped', () => {
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
-    fs.mkdirSync(tmpDir, { recursive: true });
   });
 
   afterEach(() => {
@@ -76,7 +74,7 @@ describe('assertBootstrapped', () => {
     });
   });
 
-  describe('EC-27: when .rill/npm/package.json is absent', () => {
+  describe('when .rill/npm/package.json is absent', () => {
     it('throws BootstrapMissingError', () => {
       expect(() => assertBootstrapped(tmpDir)).toThrow(BootstrapMissingError);
     });

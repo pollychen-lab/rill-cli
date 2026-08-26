@@ -11,6 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { RuntimeError } from '@rcrsr/rill';
 import type { RillValue } from '@rcrsr/rill';
+import { makeTmpDir } from '../helpers/cli-fixtures.js';
 
 let _executeErrorOverride: Error | null = null;
 
@@ -28,7 +29,6 @@ vi.mock('@rcrsr/rill', async (importActual) => {
 function makeOpts(overrides: Partial<RunCliOptions> = {}): RunCliOptions {
   return {
     scriptPath: '/tmp/test.rill',
-    scriptArgs: [],
     config: './rill-config.json',
     format: 'human',
     verbose: false,
@@ -48,7 +48,8 @@ async function runTempScript(
   extTree: Record<string, RillValue> = {},
   disposes: Array<() => void | Promise<void>> = []
 ) {
-  const scriptPath = path.join(os.tmpdir(), `rill-test-${Date.now()}.rill`);
+  const tmpDir = makeTmpDir();
+  const scriptPath = path.join(tmpDir, 'test.rill');
   fs.writeFileSync(scriptPath, source, 'utf-8');
   try {
     return await runScript(
@@ -58,7 +59,7 @@ async function runTempScript(
       disposes
     );
   } finally {
-    fs.unlinkSync(scriptPath);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }
 
@@ -86,10 +87,17 @@ describe('runScript', () => {
       expect(result.output).toBeUndefined();
     });
 
-    it('returns exit code from two-element tuple result', async () => {
-      const result = await runTempScript('tuple[42, "custom error"]');
-      expect(result.exitCode).toBe(42);
+    it('returns exit code from two-element tuple result when code is 0 or 1', async () => {
+      const result = await runTempScript('tuple[1, "custom error"]');
+      expect(result.exitCode).toBe(1);
       expect(result.output).toBe('custom error');
+    });
+
+    it('falls through to default output when tuple code is not 0 or 1', async () => {
+      const result = await runTempScript('tuple[42, "custom error"]');
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('42');
+      expect(result.output).toContain('custom error');
     });
 
     it('returns exit 0 from two-element tuple result with code 0', async () => {
@@ -122,7 +130,7 @@ describe('runScript', () => {
     });
   });
 
-  describe('Parse errors (EC-8)', () => {
+  describe('Parse errors', () => {
     it('returns exit 1 with error message on parse error', async () => {
       const result = await runTempScript('??? invalid syntax !!!');
       expect(result.exitCode).toBe(1);
@@ -142,7 +150,7 @@ describe('runScript', () => {
     });
   });
 
-  describe('Runtime errors (EC-9)', () => {
+  describe('Runtime errors', () => {
     it('returns exit 1 with RuntimeError shape on runtime error', async () => {
       const result = await runTempScript('$undefined_variable_xyz');
       expect(result.exitCode).toBe(1);
@@ -191,6 +199,40 @@ describe('runScript', () => {
         makeConfig()
       );
       expect(result.exitCode).toBe(1);
+    });
+
+    it('resolves a relative module alias against resolvedConfigPath, not cwd-resolved opts.config', async () => {
+      // opts.config stays the default relative './rill-config.json', which
+      // would resolve against process.cwd() (repo root during tests) and
+      // never find `utils/`. resolvedConfigPath points at a config nested
+      // in its own temp directory, simulating rill-run invoked from a
+      // different cwd than the config file lives in. Module resolution
+      // must use dirname(resolvedConfigPath), matching #58.
+      const configDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'rill-runner-nested-')
+      );
+      const moduleDir = path.join(configDir, 'utils');
+      fs.mkdirSync(moduleDir);
+      fs.writeFileSync(
+        path.join(moduleDir, 'helpers.rill'),
+        '"hello from helpers"',
+        'utf-8'
+      );
+      try {
+        const config = makeConfig({ modules: { utils: 'utils' } });
+        const result = await runTempScript(
+          'use<module:utils.helpers> => $h\n$h',
+          {
+            config: './rill-config.json',
+            resolvedConfigPath: path.join(configDir, 'rill-config.json'),
+          },
+          config
+        );
+        expect(result.exitCode).toBe(0);
+        expect(result.output).toBe('hello from helpers');
+      } finally {
+        fs.rmSync(configDir, { recursive: true });
+      }
     });
   });
 
@@ -251,14 +293,6 @@ describe('runScript', () => {
       const result = await runTempScript('[a: 1, b: 2]', { format: 'human' });
       expect(result.exitCode).toBe(0);
       expect(result.output).toBeDefined();
-    });
-  });
-
-  describe('pipe value from CLI args', () => {
-    it('sets pipeValue when scriptArgs are provided', async () => {
-      const result = await runTempScript('$', { scriptArgs: ['hello'] });
-      expect(result.exitCode).toBe(0);
-      expect(result.output).toBe('hello');
     });
   });
 

@@ -7,9 +7,8 @@
  * configs with known extension mounts and handler-form mains.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
-import { execSync, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -21,20 +20,6 @@ const DT_PROJECT = path.join(FIXTURES, 'dt-project');
 const DT_CONFIG = path.join(DT_PROJECT, 'rill-config.json');
 const HANDLER_PROJECT = path.join(FIXTURES, 'handler-project');
 const HANDLER_CONFIG = path.join(HANDLER_PROJECT, 'rill-config.json');
-
-// Ensure dist/cli.js exists before tests spawn it. `pnpm test`
-// does not run build first, so a clean checkout would otherwise fail
-// with ENOENT. tsbuildinfo can claim the project is up-to-date even
-// when emitted JS is missing (manual deletion, dirty dist), so use
-// --force to guarantee re-emission. Builds once, in-process.
-beforeAll(() => {
-  if (!existsSync(BINARY)) {
-    execSync('pnpm exec tsc --build --force', {
-      cwd: PROJECT_ROOT,
-      stdio: 'inherit',
-    });
-  }
-}, 60_000);
 
 function runDescribe(
   args: string[],
@@ -319,5 +304,106 @@ describe('rill-describe CLI', () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('handler.greet');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// In-process dispose-once tests
+//
+// Mocks @rcrsr/rill-config so runProject/runHandler exercise both error and
+// success paths against an in-memory project whose disposes are spied on,
+// verifying the single enclosing try/finally disposes exactly once per call
+// regardless of which return path is taken.
+// ---------------------------------------------------------------------------
+
+const disposeMocks = vi.hoisted(() => ({
+  resolveConfigPath: vi.fn(),
+  loadProject: vi.fn(),
+}));
+
+vi.mock('@rcrsr/rill-config', async (importActual) => {
+  const actual = await importActual<typeof import('@rcrsr/rill-config')>();
+  return {
+    ...actual,
+    resolveConfigPath: disposeMocks.resolveConfigPath,
+    loadProject: disposeMocks.loadProject,
+  };
+});
+
+describe('dispose-once (in-process, mocked project)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function makeProjectWithDisposeSpy(
+    overrides: Partial<{ main: string }> = {}
+  ) {
+    const disposeSpy = vi.fn().mockResolvedValue(undefined);
+    const config: { main?: string } = {};
+    if (overrides.main !== undefined) {
+      config.main = overrides.main;
+    }
+    return {
+      disposeSpy,
+      project: {
+        config,
+        extTree: {},
+        disposes: [disposeSpy],
+        resolverConfig: { resolvers: {}, configurations: { resolvers: {} } },
+        hostOptions: {},
+        extensionBindings: '[:]',
+        contextBindings: '',
+      },
+    };
+  }
+
+  it('runProject disposes exactly once on the mount-not-found error path', async () => {
+    const { main } = await import('../../src/cli-describe.js');
+    disposeMocks.resolveConfigPath.mockReturnValue('/proj/rill-config.json');
+    const { disposeSpy, project } = makeProjectWithDisposeSpy();
+    disposeMocks.loadProject.mockResolvedValue(project);
+
+    const code = await main(['project', '--mount', 'missing']);
+
+    expect(code).toBe(1);
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('runProject disposes exactly once on the success path', async () => {
+    const { main } = await import('../../src/cli-describe.js');
+    disposeMocks.resolveConfigPath.mockReturnValue('/proj/rill-config.json');
+    const { disposeSpy, project } = makeProjectWithDisposeSpy();
+    disposeMocks.loadProject.mockResolvedValue(project);
+
+    const code = await main(['project']);
+
+    expect(code).toBe(0);
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('runHandler disposes exactly once on the no-main-field error path', async () => {
+    const { main } = await import('../../src/cli-describe.js');
+    disposeMocks.resolveConfigPath.mockReturnValue('/proj/rill-config.json');
+    const { disposeSpy, project } = makeProjectWithDisposeSpy();
+    disposeMocks.loadProject.mockResolvedValue(project);
+
+    const code = await main(['handler']);
+
+    expect(code).toBe(1);
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('runHandler disposes exactly once when main is not a handler reference', async () => {
+    const { main } = await import('../../src/cli-describe.js');
+    disposeMocks.resolveConfigPath.mockReturnValue('/proj/rill-config.json');
+    const { disposeSpy, project } = makeProjectWithDisposeSpy({
+      main: 'index.rill',
+    });
+    disposeMocks.loadProject.mockResolvedValue(project);
+
+    const code = await main(['handler']);
+
+    expect(code).toBe(1);
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
   });
 });
