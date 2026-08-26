@@ -2,14 +2,14 @@
  * Tests for parseCheckArgs function
  *
  * Test Coverage Matrix (maps TCs to specification requirements):
- * TC-1: --help flag returns help mode [AC-S6]
- * TC-3: Unknown flag throws error [EC-1]
- * TC-4: Missing file throws error [EC-2]
+ * TC-1: --help flag returns help mode
+ * TC-3: Unknown flag throws error
+ * TC-4: Missing file throws error
  * TC-5: --fix flag parsed correctly [IR-2]
  * TC-6: --verbose flag parsed correctly [IR-2]
  * TC-7: --format text parsed correctly [IR-2]
  * TC-8: --format json parsed correctly [IR-2]
- * TC-9: --format with invalid value throws error [EC-1]
+ * TC-9: --format with invalid value throws error
  */
 
 import { describe, it, expect } from 'vitest';
